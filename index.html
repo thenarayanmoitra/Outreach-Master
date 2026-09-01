@@ -1,0 +1,1754 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Reach — Outreach Tracker</title>
+<meta name="theme-color" content="#F1F4EC">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Manrope:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Fraunces:ital,wght@1,500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --paper:#F1F4EC;
+  --paper-deep:#E7ECDF;
+  --parchment:#DCE4D2;
+  --ink-deep:#16241C;
+  --ink-deep-2:#1F3327;
+  --ink:#202A22;
+  --ink-mid:#4B5A4E;
+  --ink-faint:#5C6A5E;
+  --accent:#D98A2B;
+  --accent-deep:#8A5410;
+  --accent-soft:#E8B25C;
+
+  --bg:var(--paper);
+  --surface:#FFFFFF;
+  --surface-2:var(--paper-deep);
+  --text:var(--ink);
+  --text-2:var(--ink-mid);
+  --text-3:var(--ink-faint);
+  --sep:rgba(22,36,28,.14);
+  --sep-strong:rgba(22,36,28,.22);
+  --sep-dark:rgba(241,244,236,.16);
+  --red:#B23A2E;
+  --amber:#B07C1E;
+  --green:#3F7A4B;
+  --radius:4px;
+  --ease:cubic-bezier(.22,.8,.24,1);
+  --safe-top:env(safe-area-inset-top,0px);
+  --safe-bottom:env(safe-area-inset-bottom,0px);
+  --maxw:1160px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;min-height:100%}
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:'Manrope',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+  font-size:15px;line-height:1.55;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+}
+[hidden]{display:none !important}
+button{font-family:inherit;cursor:pointer;color:inherit;border:none;background:none;margin:0}
+input,select,textarea{font-family:inherit;font-size:inherit;color:inherit}
+h1,h2,h3{font-family:'Space Grotesk',sans-serif;font-weight:600;margin:0;letter-spacing:-.01em;color:var(--ink-deep)}
+a{color:var(--accent-deep)}
+.mono{font-family:'Space Mono',monospace;text-transform:uppercase;letter-spacing:.22em;font-size:.65rem}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 clamp(1.1rem,4vw,2.25rem)}
+::selection{background:var(--accent-soft);color:var(--ink-deep)}
+
+/* ---------- topbar ---------- */
+.topbar{
+  position:sticky;top:0;z-index:40;
+  background:rgba(241,244,236,.92);backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--sep);
+  padding-top:var(--safe-top);
+}
+.topbar-inner{display:flex;align-items:center;gap:1.5rem;height:64px}
+.logo{display:flex;align-items:baseline;gap:.5rem;flex-shrink:0}
+.logo-word{font-family:'Fraunces',serif;font-style:italic;font-weight:500;font-size:1.5rem;color:var(--ink-deep)}
+.logo-tag{color:var(--text-3)}
+.tabs{display:flex;gap:.25rem;flex:1;overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab-btn{
+  padding:.55rem .9rem;font-weight:600;font-size:.9rem;color:var(--text-2);
+  border-radius:var(--radius);white-space:nowrap;transition:color .15s var(--ease),background .15s var(--ease);
+}
+.tab-btn:hover{color:var(--ink-deep)}
+.tab-btn.active{color:var(--ink-deep);background:var(--surface)}
+.topbar-actions{display:flex;gap:.5rem;flex-shrink:0}
+@media (max-width:840px){
+  .topbar-inner{flex-wrap:wrap;height:auto;padding:.7rem 0;row-gap:.6rem}
+  .logo{order:1}
+  .topbar-actions{order:2;margin-left:auto}
+  .tabs{order:3;flex:1 1 100%}
+}
+
+.btn{
+  display:inline-flex;align-items:center;gap:.4rem;justify-content:center;
+  padding:.6rem 1.05rem;border-radius:var(--radius);font-weight:600;font-size:.86rem;
+  transition:background .15s var(--ease),color .15s var(--ease),border-color .15s var(--ease),transform .1s var(--ease);
+  white-space:nowrap;
+}
+.btn:active{transform:scale(.97)}
+.btn-primary{background:var(--ink-deep);color:var(--paper)}
+.btn-primary:hover{background:var(--accent-deep)}
+.btn-ghost{background:transparent;color:var(--ink-deep);border:1px solid var(--sep-strong)}
+.btn-ghost:hover{background:var(--ink-deep);color:var(--paper)}
+.btn-sm{padding:.4rem .75rem;font-size:.78rem}
+.btn-danger-ghost{background:transparent;color:var(--red);border:1px solid rgba(178,58,46,.35)}
+.btn-danger-ghost:hover{background:var(--red);color:#fff}
+
+/* ---------- setup banner ---------- */
+#setupBanner{
+  background:var(--ink-deep);color:var(--paper);padding:2.5rem 0;
+}
+#setupBanner .wrap{max-width:760px}
+#setupBanner h2{color:var(--paper);font-size:1.5rem;margin-bottom:.75rem}
+#setupBanner p{color:var(--paper-deep);margin:0 0 .6rem}
+#setupBanner code{background:var(--ink-deep-2);color:var(--accent-soft);padding:.15rem .4rem;border-radius:3px;font-family:'Space Mono',monospace;font-size:.85em}
+#setupBanner .mono{color:var(--accent-soft)}
+
+main{padding:2rem 0 5rem}
+
+/* ---------- dashboard bento ---------- */
+.dash-grid{
+  display:grid;gap:1rem;
+  grid-template-columns:repeat(6,1fr);
+  grid-auto-rows:minmax(96px,auto);
+}
+.card{
+  background:var(--surface);border:1px solid var(--sep);border-radius:var(--radius);
+  padding:1.25rem 1.4rem;box-shadow:0 1px 2px rgba(22,36,28,.05);
+}
+.card-dark{background:var(--ink-deep);color:var(--paper);border:none}
+.card-dark .mono{color:var(--accent-soft)}
+.card-tint{background:var(--paper-deep)}
+.cell-funnel{grid-column:span 3;grid-row:span 2}
+.cell-stat{grid-column:span 1;grid-row:span 1;display:flex;flex-direction:column;justify-content:center}
+.cell-chart{grid-column:span 3;grid-row:span 2}
+.cell-status{grid-column:span 2;grid-row:span 1}
+.cell-source{grid-column:span 2;grid-row:span 1}
+.cell-followup{grid-column:span 2;grid-row:span 1}
+@media (max-width:960px){
+  .dash-grid{grid-template-columns:repeat(2,1fr)}
+  .cell-funnel,.cell-chart,.cell-status,.cell-source,.cell-followup{grid-column:span 2}
+  .cell-stat{grid-column:span 1}
+}
+
+.stat-num{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:2.1rem;color:var(--ink-deep);line-height:1}
+.stat-label{color:var(--text-3);margin-top:.35rem}
+.card-dark .stat-num{color:var(--paper)}
+
+.funnel-row{display:flex;align-items:center;gap:.85rem;margin-top:1rem}
+.funnel-bar-track{flex:1;height:10px;background:var(--ink-deep-2);border-radius:99px;overflow:hidden}
+.funnel-bar-fill{height:100%;background:var(--accent-soft);border-radius:99px;transition:width .5s var(--ease)}
+.funnel-num{font-family:'Space Grotesk',sans-serif;font-weight:700;min-width:2.4rem;text-align:right}
+.funnel-name{width:6.5rem;color:var(--paper-deep);font-size:.85rem}
+.funnel-rate{margin-top:1.1rem;padding-top:1rem;border-top:1px solid var(--sep-dark);display:flex;justify-content:space-between;align-items:baseline}
+
+.chart-bars{display:flex;align-items:flex-end;gap:.4rem;height:120px;margin-top:1rem}
+.chart-bar{flex:1;background:var(--paper-deep);border-radius:3px 3px 0 0;position:relative;min-height:2px;transition:height .4s var(--ease)}
+.chart-bar.current{background:var(--accent-deep)}
+.chart-labels{display:flex;gap:.4rem;margin-top:.4rem}
+.chart-labels span{flex:1;text-align:center;font-size:.62rem;color:var(--text-3);font-family:'Space Mono',monospace}
+
+.mini-list{margin-top:.9rem;display:flex;flex-direction:column;gap:.55rem}
+.mini-row{display:flex;align-items:center;justify-content:space-between;font-size:.88rem}
+.mini-row .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:.5rem}
+.mini-row-left{display:flex;align-items:center;color:var(--text-2)}
+.mini-row-right{font-weight:700;font-family:'Space Grotesk',sans-serif}
+.empty-note{color:var(--text-3);font-size:.85rem;margin-top:.9rem}
+
+/* ---------- status colors ---------- */
+.status-Won{color:var(--green)}
+.status-In-Progress{color:var(--accent-deep)}
+.status-Warm{color:var(--amber)}
+.status-Not-Now{color:var(--text-3)}
+.status-Dead{color:var(--red)}
+.dot-Won{background:var(--green)}
+.dot-In-Progress{background:var(--accent-deep)}
+.dot-Warm{background:var(--amber)}
+.dot-Not-Now{background:var(--text-3)}
+.dot-Dead{background:var(--red)}
+.badge{
+  display:inline-flex;align-items:center;gap:.3rem;padding:.2rem .55rem;border-radius:99px;
+  font-size:.72rem;font-weight:700;border:1px solid currentColor;
+}
+
+/* ---------- toolbar / filters ---------- */
+.toolbar{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:1.25rem}
+.search-input{
+  flex:1;min-width:180px;padding:.6rem .8rem;border:1px solid var(--sep-strong);border-radius:var(--radius);
+  background:var(--surface);
+}
+select.filter-select{
+  padding:.55rem .7rem;border:1px solid var(--sep-strong);border-radius:var(--radius);background:var(--surface);
+}
+.view-toggle{display:flex;border:1px solid var(--sep-strong);border-radius:var(--radius);overflow:hidden}
+.view-toggle button{padding:.5rem .8rem;font-weight:600;font-size:.82rem;color:var(--text-2)}
+.view-toggle button.active{background:var(--ink-deep);color:var(--paper)}
+
+/* ---------- shared cell text styles ---------- */
+.td-company{font-weight:600;color:var(--ink-deep)}
+.td-sub{color:var(--text-3);font-size:.78rem;margin-top:.1rem}
+
+/* ---------- spreadsheet-style leads grid ---------- */
+.sheet-shell{border:1px solid var(--sep-strong);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+.sheet-scroll{overflow:auto;max-height:65vh}
+.sheet-table{border-collapse:collapse;width:100%;min-width:920px}
+.sheet-table th,.sheet-table td{border:1px solid var(--sep);padding:0;position:relative}
+.checkbox-head,.checkbox-cell{width:34px;min-width:34px;text-align:center;position:sticky;left:0;z-index:1;background:var(--paper-deep)}
+.checkbox-head{z-index:3}
+.checkbox-head input,.checkbox-cell input{cursor:pointer}
+.sheet-table td.rownum{left:34px}
+.sheet-table th.rownum-head{left:34px}
+.sheet-table thead th{
+  position:sticky;top:0;z-index:2;background:var(--paper-deep);
+  font-family:'Space Mono',monospace;text-transform:uppercase;letter-spacing:.08em;font-size:.62rem;color:var(--text-3);
+  padding:.55rem .6rem;text-align:left;white-space:nowrap;cursor:pointer;user-select:none;
+}
+.sheet-table thead th:hover{color:var(--ink-deep)}
+.sheet-table th.rownum-head,.sheet-table td.rownum{
+  position:sticky;left:0;z-index:1;background:var(--paper-deep);color:var(--text-3);
+  text-align:center;font-family:'Space Mono',monospace;font-size:.7rem;width:38px;min-width:38px;cursor:default;
+}
+.sheet-table thead th.rownum-head{z-index:3}
+.sheet-table tbody tr:nth-child(even){background:rgba(22,36,28,.02)}
+.sheet-table tbody tr:hover{background:var(--paper-deep)}
+.sheet-table tbody tr:hover td.rownum{background:var(--parchment)}
+.cell-input{width:100%;border:none;background:transparent;padding:.55rem .6rem;font-size:.83rem;color:var(--text);border-radius:0}
+.cell-input:focus{outline:2px solid var(--accent-deep);outline-offset:-2px;background:var(--surface);position:relative}
+.cell-select{width:100%;border:none;background:transparent;padding:.5rem .4rem;font-size:.78rem;font-weight:700;cursor:pointer;border-radius:0}
+.cell-select:focus{outline:2px solid var(--accent-deep);outline-offset:-2px}
+.follow-due-cell{background:rgba(178,58,46,.06)}
+.rowbtn{padding:.4rem .6rem;color:var(--text-3);font-size:.9rem;width:100%}
+.rowbtn:hover{color:var(--ink-deep)}
+
+.sheet-tabs{display:flex;align-items:center;gap:2px;overflow-x:auto;margin-top:.6rem;padding:.3rem;background:var(--paper-deep);border-radius:var(--radius);scrollbar-width:thin}
+.sheet-tab{
+  display:flex;align-items:center;gap:.35rem;
+  padding:.5rem .6rem .5rem .9rem;font-size:.8rem;font-weight:600;color:var(--text-2);white-space:nowrap;border-radius:3px 3px 0 0;
+  border-bottom:2px solid transparent;cursor:pointer;transition:background .12s var(--ease),color .12s var(--ease);
+}
+.sheet-tab:hover{color:var(--ink-deep);background:rgba(255,255,255,.5)}
+.sheet-tab.active{background:var(--surface);color:var(--ink-deep);border-bottom-color:var(--accent-deep)}
+.sheet-tab-close{
+  opacity:0;width:16px;height:16px;border-radius:50%;font-size:.75rem;line-height:1;color:var(--text-3);
+  display:flex;align-items:center;justify-content:center;transition:opacity .12s var(--ease),background .12s var(--ease),color .12s var(--ease);
+}
+.sheet-tab:hover .sheet-tab-close{opacity:1}
+.sheet-tab-close:hover{background:var(--red);color:#fff}
+.sheet-tab-add{padding:.5rem .8rem;color:var(--text-3);font-weight:700;font-size:1rem;border-radius:3px}
+.sheet-tab-add:hover{color:var(--ink-deep);background:rgba(255,255,255,.5)}
+
+.fill-handle{
+  position:absolute;right:-1px;bottom:-1px;width:9px;height:9px;background:var(--accent-deep);
+  border:1px solid var(--surface);cursor:crosshair;z-index:6;
+}
+.fill-target{outline:2px solid var(--accent-deep);outline-offset:-2px;background:rgba(217,138,43,.14)}
+
+.bulk-bar{
+  display:flex;flex-wrap:wrap;align-items:center;gap:.6rem;margin:-.6rem 0 1rem;padding:.6rem .9rem;
+  background:var(--parchment);border-radius:var(--radius);font-size:.85rem;
+}
+.bulk-bar b{font-family:'Space Grotesk',sans-serif}
+
+.cstatus-Scheduled{color:var(--text-3)}
+.cstatus-In-Progress{color:var(--accent-deep)}
+.cstatus-Completed{color:var(--green)}
+.cstatus-Paused{color:var(--red)}
+
+/* ---------- kanban ---------- */
+.kanban{display:flex;gap:1rem;overflow-x:auto;padding-bottom:1rem}
+.kcol{flex:0 0 270px;background:var(--paper-deep);border-radius:var(--radius);padding:.85rem;min-height:200px}
+.kcol-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;padding:0 .2rem}
+.kcol-head h3{font-size:.9rem}
+.kcol-count{font-family:'Space Mono',monospace;font-size:.72rem;color:var(--text-3)}
+.kcol.dragover{outline:2px dashed var(--accent-deep);outline-offset:-4px}
+.kcard{
+  background:var(--surface);border:1px solid var(--sep);border-radius:var(--radius);
+  padding:.75rem .85rem;margin-bottom:.6rem;cursor:grab;box-shadow:0 1px 2px rgba(22,36,28,.05);
+}
+.kcard:active{cursor:grabbing}
+.kcard.dragging{opacity:.4}
+.kcard-company{font-weight:700;font-size:.88rem;color:var(--ink-deep)}
+.kcard-meta{color:var(--text-3);font-size:.75rem;margin-top:.3rem}
+
+/* ---------- modals ---------- */
+.overlay{
+  position:fixed;inset:0;background:rgba(22,36,28,.5);backdrop-filter:blur(2px);
+  display:flex;align-items:flex-start;justify-content:center;z-index:100;padding:3vh 1rem;overflow-y:auto;
+}
+.modal{
+  background:var(--surface);border-radius:var(--radius);width:100%;max-width:640px;
+  padding:1.75rem;margin:auto 0;box-shadow:0 8px 30px rgba(22,36,28,.25);
+}
+.modal.wide{max-width:920px}
+.modal-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.2rem;gap:1rem}
+.modal-close{font-size:1.3rem;color:var(--text-3);line-height:1;padding:.2rem}
+.modal-close:hover{color:var(--ink-deep)}
+.field{margin-bottom:1rem}
+.field label{display:block;font-family:'Space Mono',monospace;text-transform:uppercase;letter-spacing:.1em;font-size:.65rem;color:var(--text-3);margin-bottom:.4rem}
+.field input,.field select,.field textarea{
+  width:100%;padding:.6rem 0;border:none;border-bottom:1px solid var(--sep-strong);background:transparent;
+}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-bottom-color:var(--accent-deep)}
+.field textarea{resize:vertical;min-height:70px;border:1px solid var(--sep-strong);padding:.6rem;border-radius:var(--radius)}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+.modal-actions{display:flex;justify-content:flex-end;gap:.6rem;margin-top:1.4rem}
+
+.warn-banner{
+  background:rgba(217,138,43,.12);border:1px solid rgba(138,84,16,.3);border-radius:var(--radius);
+  padding:.8rem 1rem;margin-bottom:1rem;font-size:.85rem;color:var(--accent-deep);
+}
+.warn-banner b{color:var(--ink-deep)}
+
+/* ---------- dropzone ---------- */
+.dropzone{
+  border:2px dashed var(--sep-strong);border-radius:var(--radius);padding:3rem 1.5rem;text-align:center;
+  color:var(--text-2);transition:border-color .15s var(--ease),background .15s var(--ease);cursor:pointer;
+}
+.dropzone.dragover{border-color:var(--accent-deep);background:var(--paper-deep)}
+.dropzone h3{margin-bottom:.4rem}
+
+/* ---------- import preview ---------- */
+.preview-summary{display:flex;gap:1.5rem;margin-bottom:1rem;flex-wrap:wrap}
+.preview-summary .stat-num{font-size:1.5rem}
+.preview-toolbar{display:flex;gap:.5rem;margin-bottom:.8rem;flex-wrap:wrap}
+.preview-scroll{max-height:48vh;overflow-y:auto;border:1px solid var(--sep);border-radius:var(--radius)}
+.prow{padding:.8rem .9rem;border-bottom:1px solid var(--sep);display:grid;grid-template-columns:1.4fr 1fr 1.6fr;gap:.75rem;align-items:start}
+.prow:last-child{border-bottom:none}
+.prow.dup{background:rgba(217,138,43,.06)}
+.prow-reasons{margin-top:.3rem;display:flex;gap:.3rem;flex-wrap:wrap}
+.reason-chip{font-size:.68rem;font-family:'Space Mono',monospace;background:var(--parchment);color:var(--ink-deep);padding:.15rem .4rem;border-radius:3px}
+.prow-match{font-size:.78rem;color:var(--text-2)}
+.prow-match b{color:var(--ink-deep)}
+.prow select{padding:.4rem .5rem;border:1px solid var(--sep-strong);border-radius:var(--radius);font-size:.8rem;width:100%}
+
+/* ---------- lead detail ---------- */
+.lead-head{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;margin-bottom:1.2rem}
+.lead-head h2{font-size:1.4rem}
+.lead-meta{color:var(--text-3);font-size:.85rem;margin-top:.3rem}
+.lead-fields{display:grid;grid-template-columns:1fr 1fr;gap:.9rem 1.4rem;margin-bottom:1.3rem;padding-bottom:1.3rem;border-bottom:1px solid var(--sep)}
+.lead-fields .field{margin-bottom:0}
+.timeline{display:flex;flex-direction:column;gap:.9rem;max-height:280px;overflow-y:auto;margin-bottom:1rem}
+.tnote{border-left:2px solid var(--sep-strong);padding-left:.85rem}
+.tnote-date{font-family:'Space Mono',monospace;font-size:.68rem;color:var(--text-3);margin-bottom:.2rem}
+.tnote-text{font-size:.9rem;color:var(--text)}
+.note-add{display:flex;gap:.5rem}
+.note-add textarea{flex:1}
+
+/* ---------- toast ---------- */
+#toastHost{position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;gap:.5rem;align-items:center}
+.toast{
+  background:var(--ink-deep);color:var(--paper);padding:.7rem 1.1rem;border-radius:var(--radius);
+  font-size:.85rem;box-shadow:0 4px 16px rgba(22,36,28,.3);animation:toastIn .25s var(--ease);
+}
+@keyframes toastIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+.reveal{opacity:0;transform:translateY(16px);transition:opacity .5s var(--ease),transform .5s var(--ease)}
+.reveal.in{opacity:1;transform:translateY(0)}
+@media (prefers-reduced-motion:reduce){
+  .reveal{opacity:1;transform:none;transition:none}
+  .funnel-bar-fill,.chart-bar{transition:none}
+}
+@media (max-width:640px){
+  .lead-fields,.field-row{grid-template-columns:1fr}
+  .prow{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<div id="setupBanner" hidden>
+  <div class="wrap">
+    <span class="mono">Setup needed</span>
+    <h2>Connect a Supabase project</h2>
+    <p>This app is running on a local, this-browser-only fallback store, so it works right now, but nothing syncs across devices yet.</p>
+    <p>To make outreach memory permanent: create a free project at <a href="https://supabase.com" style="color:var(--accent-soft)" target="_blank" rel="noopener">supabase.com</a>, run <code>schema.sql</code> (shipped alongside this file) in its SQL editor, then open <code>index.html</code> and set <code>SUPABASE_URL</code> and <code>SUPABASE_ANON_KEY</code> near the top of the script block.</p>
+    <p>Until then, everything you add here lives only in this browser's local storage.</p>
+  </div>
+</div>
+
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <div class="logo"><span class="logo-word">reach</span><span class="logo-tag mono">outreach tracker</span></div>
+    <nav class="tabs" id="tabs">
+      <button class="tab-btn active" data-view="dashboard">Dashboard</button>
+      <button class="tab-btn" data-view="leads">Leads</button>
+      <button class="tab-btn" data-view="kanban">Kanban</button>
+      <button class="tab-btn" data-view="campaigns">Campaigns</button>
+    </nav>
+    <div class="topbar-actions">
+      <button class="btn btn-ghost btn-sm" id="btnImport">Import</button>
+      <button class="btn btn-primary btn-sm" id="btnAddLead">+ Add lead</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap" id="mainView"></main>
+
+<div id="toastHost"></div>
+<div id="modalHost"></div>
+
+<script>
+/* ============================= CONFIG ============================= */
+const SUPABASE_URL = 'https://xxtzyngtmrdaphbqbewu.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_QM2NOybHPX5SupdQOn0cyw_hC7vF_UC'; // Supabase's new "publishable" key format — same client-side-safe role as the older anon key
+const CONFIGURED = SUPABASE_URL.startsWith('https://') && SUPABASE_ANON_KEY.length > 20;
+
+const STATUSES = ['Won','In Progress','Warm','Not Now','Dead'];
+const CAMPAIGN_STATUSES = ['Scheduled','In Progress','Completed','Paused'];
+const FREE_EMAIL_DOMAINS = new Set(['gmail.com','yahoo.com','outlook.com','hotmail.com','icloud.com','aol.com','protonmail.com','live.com','yandex.com','mail.com','gmx.com','me.com']);
+const SUFFIXES = ['pvt ltd','pvt.ltd','private limited','pte ltd','ltd','limited','llc','llp','inc','incorporated','corp','corporation','co','company','group','groups','travel','travels','tours','tour','tourism','dmc','gmbh','sarl','plc','holdings','enterprises','enterprise','associates','associate','agency','agencies','association','associations','alliance','federation','network','networks','media','resort','resorts','hotel','hotels','solutions','partners','ventures','coalition','council','society','foundation','chamber'];
+const STATUS_SYNONYMS = {
+  won:'Won',client:'Won',signed:'Won',closed:'Won',
+  'in progress':'In Progress',negotiating:'In Progress',proposal:'In Progress',active:'In Progress',
+  warm:'Warm',interested:'Warm',new:'Warm',lead:'Warm',
+  'not now':'Not Now',cold:'Not Now',later:'Not Now',paused:'Not Now',
+  dead:'Dead',lost:'Dead','no response':'Dead',declined:'Dead'
+};
+
+/* ============================= UTIL ============================= */
+const $ = (sel,root=document)=>root.querySelector(sel);
+const $$ = (sel,root=document)=>Array.from(root.querySelectorAll(sel));
+const uid = ()=> (crypto.randomUUID ? crypto.randomUUID() : 'id-'+Date.now()+'-'+Math.random().toString(16).slice(2));
+const escHtml = s => (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const statusClass = s => 'status-'+(s||'').replace(/\s+/g,'-');
+const dotClass = s => 'dot-'+(s||'').replace(/\s+/g,'-');
+function debounce(fn,ms){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}}
+function fmtDate(d){
+  if(!d) return '—';
+  const dt = new Date(d+'T00:00:00');
+  if(isNaN(dt)) return d;
+  return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+}
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+function daysFromNow(n){ const d=new Date(); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
+function toast(msg,type='ok'){
+  const host = $('#toastHost');
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  host.appendChild(el);
+  setTimeout(()=>el.remove(),3400);
+}
+
+function normLoose(s){ return (s||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
+
+function cleanCompany(name){
+  let s = (name||'').toLowerCase();
+  s = s.replace(/&/g,' and ');
+  s = s.replace(/[^a-z0-9\s]/g,' ');
+  s = s.replace(/\s+/g,' ').trim();
+  let changed = true;
+  while(changed){
+    changed = false;
+    for(const suf of SUFFIXES){
+      const re = new RegExp('\\b'+suf.replace(/\s+/g,'\\s+')+'$');
+      if(re.test(s)){ s = s.replace(re,'').trim(); changed = true; }
+    }
+  }
+  return s;
+}
+
+function levenshtein(a,b){
+  if(a===b) return 0;
+  const al=a.length, bl=b.length;
+  if(al===0) return bl;
+  if(bl===0) return al;
+  let prev = new Array(bl+1);
+  for(let j=0;j<=bl;j++) prev[j]=j;
+  for(let i=1;i<=al;i++){
+    const cur=[i];
+    for(let j=1;j<=bl;j++){
+      const cost = a[i-1]===b[j-1]?0:1;
+      cur[j] = Math.min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost);
+    }
+    prev=cur;
+  }
+  return prev[bl];
+}
+function similarity(a,b){
+  if(!a && !b) return 1;
+  if(!a || !b) return 0;
+  const dist = levenshtein(a,b);
+  const maxLen = Math.max(a.length,b.length);
+  return maxLen===0 ? 1 : 1-(dist/maxLen);
+}
+function emailDomain(email){
+  const m = (email||'').toLowerCase().trim().match(/@([^@\s]+)$/);
+  return m ? m[1] : '';
+}
+function normalizeStatus(raw){
+  if(!raw) return 'Not Now';
+  const s = String(raw).trim();
+  if(STATUSES.includes(s)) return s;
+  const key = s.toLowerCase();
+  return STATUS_SYNONYMS[key] || 'Not Now';
+}
+function leadDisplayName(l){ return (l.company_name && l.company_name.trim()) || (l.contact_person && l.contact_person.trim()) || (l.email && l.email.trim()) || '(unnamed lead)'; }
+
+const NAME_STOPWORDS = new Set(['mr','ms','mrs','dr','and','the']);
+function nameTokens(s){
+  return (s||'').toLowerCase().split(/[^a-z]+/).filter(t=> t.length>=3 && !NAME_STOPWORDS.has(t));
+}
+function contactMatch(a,b){
+  const ta = nameTokens(a), tb = nameTokens(b);
+  if(!ta.length || !tb.length) return false;
+  for(const x of ta) for(const y of tb){
+    if(x===y || similarity(x,y) >= 0.85) return true;
+  }
+  return false;
+}
+
+/* dedup engine: candidate vs pool of {company_name, company_name_clean, email, email_domain, contact_person} */
+function scoreReasons(reasons){
+  let s=0;
+  if(reasons.includes('exact email')) s+=100;
+  if(reasons.includes('exact company name')) s+=50;
+  if(reasons.includes('same email domain')) s+=20;
+  if(reasons.includes('same contact person')) s+=15;
+  if(reasons.includes('similar company name')) s+=10;
+  return s;
+}
+function findMatches(candidate, pool){
+  const matches = [];
+  const candEmail = (candidate.email||'').toLowerCase().trim();
+  const candClean = candidate.company_name_clean || cleanCompany(candidate.company_name);
+  const candLoose = normLoose(candidate.company_name);
+  const candDomain = candidate.email_domain || emailDomain(candidate.email);
+  for(const ex of pool){
+    if(candidate.id && ex.id===candidate.id) continue;
+    const reasons = [];
+    const exEmail = (ex.email||'').toLowerCase().trim();
+    if(candEmail && exEmail && candEmail===exEmail) reasons.push('exact email');
+    const exClean = ex.company_name_clean || cleanCompany(ex.company_name);
+    let companyExact = (candClean && exClean && candClean===exClean);
+    if(!companyExact){
+      const exLoose = normLoose(ex.company_name);
+      if(candLoose && exLoose && candLoose===exLoose) companyExact = true;
+    }
+    if(companyExact) reasons.push('exact company name');
+    else if(candClean && exClean && candClean.length>=3 && exClean.length>=3){
+      const contains = candClean.length>=4 && exClean.length>=4 && (candClean.includes(exClean) || exClean.includes(candClean));
+      // Levenshtein distance can never be smaller than the length difference,
+      // so similarity can't reach 0.65 once the lengths are too far apart —
+      // skip the (relatively expensive) computation entirely in that case.
+      // Same match results, much less work on large imports.
+      const maxLen = Math.max(candClean.length, exClean.length);
+      const lenDiff = Math.abs(candClean.length - exClean.length);
+      const worthChecking = !contains && lenDiff <= maxLen * 0.35;
+      const sim = worthChecking ? similarity(candClean, exClean) : 0;
+      if(sim >= 0.65 || contains) reasons.push('similar company name');
+    }
+    const exDomain = ex.email_domain || emailDomain(ex.email);
+    if(candDomain && exDomain && candDomain===exDomain && !FREE_EMAIL_DOMAINS.has(candDomain)) reasons.push('same email domain');
+    if(candidate.contact_person && ex.contact_person && contactMatch(candidate.contact_person, ex.contact_person)) reasons.push('same contact person');
+    if(reasons.length) matches.push({lead: ex, reasons});
+  }
+  matches.sort((a,b)=> scoreReasons(b.reasons)-scoreReasons(a.reasons));
+  return matches;
+}
+
+/* ============================= DATA LAYER ============================= */
+let sbClient = null;
+if(CONFIGURED){ sbClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); }
+
+const LS_LEADS = 'oct_local_leads_v1';
+const LS_NOTES = 'oct_local_notes_v1';
+const LS_CAMPAIGNS = 'oct_local_campaigns_v1';
+function lsGet(key){ try{ return JSON.parse(localStorage.getItem(key)||'[]'); }catch(e){ return []; } }
+function lsSet(key,val){ localStorage.setItem(key, JSON.stringify(val)); }
+
+const localDb = {
+  async fetchLeads(){ return lsGet(LS_LEADS).sort((a,b)=> (b.created_at||'').localeCompare(a.created_at||'')); },
+  async fetchNotes(leadIds){
+    const all = lsGet(LS_NOTES);
+    return all.filter(n=>leadIds.includes(n.lead_id)).sort((a,b)=> (b.created_at||'').localeCompare(a.created_at||''));
+  },
+  async insertLeads(rows){
+    const all = lsGet(LS_LEADS);
+    const now = new Date().toISOString();
+    const withIds = rows.map(r=>({ id: uid(), created_at: now, updated_at: now, ...r }));
+    lsSet(LS_LEADS, all.concat(withIds));
+    return withIds;
+  },
+  async updateLead(id, fields){
+    const all = lsGet(LS_LEADS);
+    const idx = all.findIndex(l=>l.id===id);
+    if(idx>-1){ all[idx] = {...all[idx], ...fields, updated_at: new Date().toISOString()}; lsSet(LS_LEADS, all); return all[idx]; }
+  },
+  async deleteLeads(ids){
+    lsSet(LS_LEADS, lsGet(LS_LEADS).filter(l=>!ids.includes(l.id)));
+    lsSet(LS_NOTES, lsGet(LS_NOTES).filter(n=>!ids.includes(n.lead_id)));
+  },
+  async insertNote(leadId, text){
+    const all = lsGet(LS_NOTES);
+    const row = { id: uid(), lead_id: leadId, note: text, created_at: new Date().toISOString() };
+    lsSet(LS_NOTES, all.concat([row]));
+    return row;
+  },
+  async fetchCampaigns(){ return lsGet(LS_CAMPAIGNS).sort((a,b)=> (b.date||'').localeCompare(a.date||'')); },
+  async insertCampaign(fields){
+    const row = { id: uid(), created_at: new Date().toISOString(), ...fields };
+    lsSet(LS_CAMPAIGNS, lsGet(LS_CAMPAIGNS).concat([row]));
+    return row;
+  },
+  async updateCampaign(id, fields){
+    const all = lsGet(LS_CAMPAIGNS);
+    const idx = all.findIndex(c=>c.id===id);
+    if(idx>-1){ all[idx] = {...all[idx], ...fields}; lsSet(LS_CAMPAIGNS, all); return all[idx]; }
+  },
+  async deleteCampaign(id){
+    lsSet(LS_CAMPAIGNS, lsGet(LS_CAMPAIGNS).filter(c=>c.id!==id));
+  }
+};
+
+const supaDb = {
+  async fetchLeads(){
+    const { data, error } = await sbClient.from('leads').select('*').order('created_at',{ascending:false});
+    if(error) throw error;
+    return data;
+  },
+  async fetchNotes(leadIds){
+    if(!leadIds.length) return [];
+    const { data, error } = await sbClient.from('lead_notes').select('*').in('lead_id', leadIds).order('created_at',{ascending:false});
+    if(error) throw error;
+    return data;
+  },
+  async insertLeads(rows){
+    const out = [];
+    for(let i=0;i<rows.length;i+=400){
+      const chunk = rows.slice(i,i+400);
+      const { data, error } = await sbClient.from('leads').insert(chunk).select();
+      if(error) throw error;
+      out.push(...data);
+    }
+    return out;
+  },
+  async updateLead(id, fields){
+    const { data, error } = await sbClient.from('leads').update({...fields, updated_at:new Date().toISOString()}).eq('id',id).select().single();
+    if(error) throw error;
+    return data;
+  },
+  async deleteLeads(ids){
+    const { error } = await sbClient.from('leads').delete().in('id', ids);
+    if(error) throw error;
+  },
+  async insertNote(leadId, text){
+    const { data, error } = await sbClient.from('lead_notes').insert({lead_id:leadId, note:text}).select().single();
+    if(error) throw error;
+    return data;
+  },
+  async fetchCampaigns(){
+    const { data, error } = await sbClient.from('campaigns').select('*').order('date',{ascending:false});
+    if(error) throw error;
+    return data;
+  },
+  async insertCampaign(fields){
+    const { data, error } = await sbClient.from('campaigns').insert(fields).select().single();
+    if(error) throw error;
+    return data;
+  },
+  async updateCampaign(id, fields){
+    const { data, error } = await sbClient.from('campaigns').update(fields).eq('id',id).select().single();
+    if(error) throw error;
+    return data;
+  },
+  async deleteCampaign(id){
+    const { error } = await sbClient.from('campaigns').delete().eq('id',id);
+    if(error) throw error;
+  }
+};
+const db = CONFIGURED ? supaDb : localDb;
+
+/* ============================= STATE ============================= */
+const state = {
+  view: 'dashboard',
+  leads: [],
+  campaigns: [],
+  notesCache: new Map(),
+  filters: { status:'', due:'', q:'' },
+  sort: { key:'created_at', dir:'desc' },
+  columnMaps: JSON.parse(localStorage.getItem('oct_column_maps_v1')||'{}'),
+  customGroups: JSON.parse(localStorage.getItem('oct_custom_groups_v1')||'[]'),
+  activeGroup: JSON.parse(localStorage.getItem('oct_active_group_v1')||'null'),
+  selectedIds: new Set(),
+};
+
+async function refreshLeads(){
+  state.leads = await db.fetchLeads();
+}
+async function refreshCampaigns(){
+  state.campaigns = await db.fetchCampaigns();
+}
+
+function setActiveGroup(g){
+  state.activeGroup = g;
+  state.selectedIds.clear();
+  localStorage.setItem('oct_active_group_v1', JSON.stringify(g));
+}
+function saveCustomGroups(){ localStorage.setItem('oct_custom_groups_v1', JSON.stringify(state.customGroups)); }
+function allGroups(){
+  const fromLeads = new Set(state.leads.map(l=> l.source_list || ''));
+  const set = new Set([...fromLeads, ...state.customGroups]);
+  return [...set].sort((a,b)=>{
+    if(a==='') return 1;
+    if(b==='') return -1;
+    return a.localeCompare(b);
+  });
+}
+function groupLabel(g){ return g===''? 'Unlabeled' : g; }
+
+/* ============================= INIT ============================= */
+document.addEventListener('DOMContentLoaded', async ()=>{
+  if(!CONFIGURED){ $('#setupBanner').hidden = false; }
+  $$('.tab-btn').forEach(b=> b.addEventListener('click', ()=> setView(b.dataset.view)));
+  $('#btnImport').addEventListener('click', openImportModal);
+  $('#btnAddLead').addEventListener('click', ()=>openLeadDetail(null));
+  try{
+    await refreshLeads();
+    await refreshCampaigns();
+  }catch(e){ console.error(e); toast('Could not load leads — check your Supabase config.'); }
+  render();
+  document.addEventListener('mousedown', e=>{
+    if(e.target.classList && e.target.classList.contains('fill-handle')){
+      e.preventDefault();
+      startFillDrag(e.target);
+    }
+  });
+});
+
+function setView(v){
+  state.view = v;
+  state.selectedIds.clear();
+  $$('.tab-btn').forEach(b=> b.classList.toggle('active', b.dataset.view===v));
+  render();
+}
+
+function render(){
+  const main = $('#mainView');
+  if(state.view==='dashboard') main.innerHTML = renderDashboard();
+  else if(state.view==='leads') { main.innerHTML = renderLeadsView(); wireLeadsView(); }
+  else if(state.view==='kanban') { main.innerHTML = renderKanban(); wireKanban(); }
+  else if(state.view==='campaigns') { main.innerHTML = renderCampaignsView(); wireCampaignsView(); }
+  requestAnimationFrame(()=>{
+    $$('.reveal').forEach((el,i)=> setTimeout(()=>el.classList.add('in'), i*40));
+  });
+}
+
+/* ============================= DASHBOARD ============================= */
+function renderDashboard(){
+  const leads = state.leads;
+  const total = leads.length;
+  const won = leads.filter(l=>l.status==='Won').length;
+  const contacted = leads.filter(l=>l.last_contacted).length;
+  const responded = leads.filter(l=>l.status==='In Progress' || l.status==='Won').length;
+  const responseRate = contacted ? Math.min(100, Math.round((responded/contacted)*100)) : 0;
+
+  const statusCounts = {};
+  STATUSES.forEach(s=> statusCounts[s] = leads.filter(l=>l.status===s).length);
+
+  const months = [];
+  for(let i=11;i>=0;i--){
+    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth()-i);
+    months.push({ key:d.toISOString().slice(0,7), label:d.toLocaleDateString('en-US',{month:'short'}) });
+  }
+  const monthCounts = months.map(m=> leads.filter(l=> (l.date_added||'').slice(0,7)===m.key).length);
+  const maxMonth = Math.max(1, ...monthCounts);
+
+  const sourceMap = {};
+  leads.forEach(l=>{
+    const src = l.source_list || 'Unlabeled';
+    sourceMap[src] = (sourceMap[src]||0)+1;
+  });
+  const sources = Object.entries(sourceMap).sort((a,b)=>b[1]-a[1]).slice(0,5);
+
+  const due = leads.filter(l=> l.next_follow_up && l.next_follow_up <= daysFromNow(7)).sort((a,b)=> (a.next_follow_up||'').localeCompare(b.next_follow_up||''));
+
+  return `
+  <div class="dash-grid">
+    <div class="card card-dark cell-funnel reveal">
+      <span class="mono" title="Contacted = last-contacted date set. Responded = status is In Progress or Won.">Funnel</span>
+      <div class="funnel-row"><span class="funnel-name">Contacted</span><div class="funnel-bar-track"><div class="funnel-bar-fill" style="width:${contacted?100:0}%"></div></div><span class="funnel-num">${contacted}</span></div>
+      <div class="funnel-row"><span class="funnel-name">Responded</span><div class="funnel-bar-track"><div class="funnel-bar-fill" style="width:${contacted?Math.min(100,Math.round(responded/contacted*100)):0}%"></div></div><span class="funnel-num">${responded}</span></div>
+      <div class="funnel-row"><span class="funnel-name">Won</span><div class="funnel-bar-track"><div class="funnel-bar-fill" style="width:${contacted?Math.min(100,Math.round(won/contacted*100)):0}%"></div></div><span class="funnel-num">${won}</span></div>
+      <div class="funnel-rate"><span class="mono">Response rate</span><span class="stat-num" style="font-size:1.4rem">${responseRate}%</span></div>
+    </div>
+
+    <div class="card cell-stat reveal"><div class="stat-num">${total}</div><div class="stat-label">Total leads</div></div>
+    <div class="card cell-stat reveal"><div class="stat-num status-Won">${won}</div><div class="stat-label">Won</div></div>
+    <div class="card cell-stat reveal"><div class="stat-num status-Warm">${statusCounts['Warm']}</div><div class="stat-label">Warm</div></div>
+    <div class="card cell-stat reveal"><div class="stat-num status-Dead">${statusCounts['Dead']}</div><div class="stat-label">Dead</div></div>
+
+    <div class="card cell-chart reveal">
+      <span class="mono">Leads added per month</span>
+      <div class="chart-bars">
+        ${monthCounts.map((c,i)=>`<div class="chart-bar${i===monthCounts.length-1?' current':''}" style="height:${Math.max(2,Math.round(c/maxMonth*100))}%" title="${months[i].label}: ${c}"></div>`).join('')}
+      </div>
+      <div class="chart-labels">${months.map((m,i)=> i%2===0?`<span>${m.label}</span>`:'<span></span>').join('')}</div>
+    </div>
+
+    <div class="card card-tint cell-status reveal">
+      <span class="mono">By status</span>
+      <div class="mini-list">
+        ${STATUSES.map(s=>`<div class="mini-row"><span class="mini-row-left"><span class="dot ${dotClass(s)}"></span>${s}</span><span class="mini-row-right">${statusCounts[s]}</span></div>`).join('')}
+      </div>
+    </div>
+
+    <div class="card cell-source reveal">
+      <span class="mono">By sheet</span>
+      ${sources.length ? `<div class="mini-list">${sources.map(([name,count])=>`<div class="mini-row"><span class="mini-row-left">${escHtml(name)}</span><span class="mini-row-right">${count}</span></div>`).join('')}</div>` : `<div class="empty-note">No leads yet.</div>`}
+    </div>
+
+    <div class="card card-tint cell-followup reveal">
+      <span class="mono">Due this week</span>
+      ${due.length ? `<div class="mini-list">${due.map(l=>`<div class="mini-row"><span class="mini-row-left">${escHtml(leadDisplayName(l))}</span><span class="mini-row-right" style="font-family:'Space Mono',monospace;font-size:.72rem;color:var(--text-3)">${fmtDate(l.next_follow_up)}</span></div>`).join('')}</div>` : `<div class="empty-note">Nothing due. Nice.</div>`}
+    </div>
+  </div>`;
+}
+
+/* ============================= LEADS SHEET VIEW ============================= */
+function filteredSortedLeads(){
+  let rows = state.leads.slice();
+  const f = state.filters;
+  if(state.activeGroup!=null) rows = rows.filter(l=>(l.source_list||'')===state.activeGroup);
+  if(f.status) rows = rows.filter(l=>l.status===f.status);
+  if(f.due==='due') rows = rows.filter(l=> l.next_follow_up && l.next_follow_up <= daysFromNow(7));
+  if(f.q){
+    const q = f.q.toLowerCase();
+    rows = rows.filter(l=> (l.company_name||'').toLowerCase().includes(q) || (l.contact_person||'').toLowerCase().includes(q) || (l.email||'').toLowerCase().includes(q));
+  }
+  const { key, dir } = state.sort;
+  rows.sort((a,b)=>{
+    const av = a[key]||'', bv = b[key]||'';
+    const cmp = String(av).localeCompare(String(bv));
+    return dir==='asc'?cmp:-cmp;
+  });
+  return rows;
+}
+
+/* The toolbar (search/filter inputs) and the sheet-tabs bar render once per
+   full view-load and are never touched again while typing/selecting — only
+   #leadsGridArea gets replaced on search, filter, sort, or selection changes.
+   Rebuilding the whole view on every keystroke used to yank focus out of the
+   search box after each debounced update; this keeps that box (and its
+   cursor position) completely untouched while you type. */
+function renderLeadsView(){
+  const groups = allGroups();
+  return `
+  <div class="toolbar reveal">
+    <input class="search-input" id="searchInput" placeholder="Search company, contact, or email…" value="${escHtml(state.filters.q)}">
+    <select class="filter-select" id="statusFilter">
+      <option value="">All statuses</option>
+      ${STATUSES.map(s=>`<option value="${s}" ${state.filters.status===s?'selected':''}>${s}</option>`).join('')}
+    </select>
+    <select class="filter-select" id="dueFilter">
+      <option value="">Any follow-up</option>
+      <option value="due" ${state.filters.due==='due'?'selected':''}>Due within 7 days</option>
+    </select>
+  </div>
+  <div id="leadsGridArea">${renderLeadsGridArea()}</div>
+  <div class="sheet-tabs reveal">
+    <div class="sheet-tab ${state.activeGroup===null?'active':''}" data-group="__all__">All leads</div>
+    ${groups.map(g=>`<div class="sheet-tab ${state.activeGroup===g?'active':''}" data-group="${escHtml(g)}" title="Double-click to rename">${escHtml(groupLabel(g))}${g!==''?`<button class="sheet-tab-close" data-delgroup="${escHtml(g)}" title="Delete sheet">&times;</button>`:''}</div>`).join('')}
+    <button class="sheet-tab-add" id="addSheetTab" title="New sheet">+</button>
+  </div>`;
+}
+
+function renderLeadsGridArea(){
+  const rows = filteredSortedLeads();
+  const groups = allGroups();
+  const showSource = state.activeGroup===null;
+  const colCount = showSource ? 9 : 8;
+  const nSel = state.selectedIds.size;
+  const allSelected = rows.length>0 && rows.every(l=>state.selectedIds.has(l.id));
+  return `
+  ${nSel ? `
+  <div class="bulk-bar">
+    <span><b>${nSel}</b> selected</span>
+    <select class="filter-select" id="bulkStatus">
+      <option value="">Set status…</option>
+      ${STATUSES.map(s=>`<option value="${s}">${s}</option>`).join('')}
+    </select>
+    <select class="filter-select" id="bulkMove">
+      <option value="">Move to sheet…</option>
+      ${groups.map(g=>`<option value="${escHtml(g)}">${escHtml(groupLabel(g))}</option>`).join('')}
+      <option value="__new__">+ New sheet…</option>
+    </select>
+    <button class="btn btn-danger-ghost btn-sm" id="bulkDelete">Delete</button>
+    <button class="btn btn-ghost btn-sm" id="bulkClear">Clear</button>
+  </div>` : ''}
+  <div class="sheet-shell">
+    <div class="sheet-scroll">
+      <table class="sheet-table">
+        <thead><tr>
+          <th class="checkbox-head"><input type="checkbox" id="selectAllRows" ${allSelected?'checked':''}></th>
+          <th class="rownum-head">#</th>
+          <th data-key="company_name">Company</th>
+          <th data-key="contact_person">Contact</th>
+          <th data-key="email">Email</th>
+          <th data-key="status">Status</th>
+          ${showSource?'<th data-key="source_list">Sheet</th>':''}
+          <th data-key="next_follow_up">Follow-up</th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+          ${rows.length ? rows.map((l,i)=>`
+            <tr data-id="${l.id}">
+              <td class="checkbox-cell"><input type="checkbox" class="rowCheckbox" data-id="${l.id}" ${state.selectedIds.has(l.id)?'checked':''}></td>
+              <td class="rownum">${i+1}</td>
+              <td><input class="cell-input" data-field="company_name" value="${escHtml(l.company_name)}" placeholder="Company"></td>
+              <td><input class="cell-input" data-field="contact_person" value="${escHtml(l.contact_person||'')}" placeholder="Contact"></td>
+              <td><input class="cell-input" data-field="email" value="${escHtml(l.email||'')}" placeholder="Email"></td>
+              <td><select class="cell-select ${statusClass(l.status)}" data-field="status">${STATUSES.map(s=>`<option value="${s}" ${l.status===s?'selected':''}>${s}</option>`).join('')}</select></td>
+              ${showSource?`<td><input class="cell-input" data-field="source_list" value="${escHtml(l.source_list||'')}" placeholder="—"></td>`:''}
+              <td class="${l.next_follow_up && l.next_follow_up<=daysFromNow(7)?'follow-due-cell':''}"><input type="date" class="cell-input" data-field="next_follow_up" value="${l.next_follow_up||''}"></td>
+              <td><button class="rowbtn" data-notes="${l.id}" title="Notes & details">🗒</button></td>
+            </tr>`).join('') : `<tr><td colspan="${colCount}" style="text-align:center;color:var(--text-3);padding:2.5rem;border:none">No leads here yet. Import a sheet or add one manually.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function refreshLeadsGridArea(){
+  const el = $('#leadsGridArea');
+  if(!el) return;
+  el.innerHTML = renderLeadsGridArea();
+  wireLeadsGridArea();
+}
+
+function wireLeadsView(){
+  $('#searchInput').addEventListener('input', debounce(e=>{ state.filters.q = e.target.value; refreshLeadsGridArea(); },200));
+  $('#statusFilter').addEventListener('change', e=>{ state.filters.status = e.target.value; refreshLeadsGridArea(); });
+  $('#dueFilter').addEventListener('change', e=>{ state.filters.due = e.target.value; refreshLeadsGridArea(); });
+
+  $$('.sheet-tab[data-group]').forEach(tab=> {
+    tab.addEventListener('click', ()=>{
+      const g = tab.dataset.group;
+      setActiveGroup(g==='__all__' ? null : g);
+      render();
+    });
+    if(tab.dataset.group!=='__all__'){
+      tab.addEventListener('dblclick', (e)=>{ e.stopPropagation(); renameGroup(tab.dataset.group); });
+    }
+  });
+  $$('.sheet-tab-close[data-delgroup]').forEach(btn=> btn.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    deleteGroupFlow(btn.dataset.delgroup);
+  }));
+  const addBtn = $('#addSheetTab');
+  if(addBtn) addBtn.addEventListener('click', ()=>{
+    const name = prompt('Name this sheet (e.g. a campaign or list name):');
+    if(!name) return;
+    const trimmed = name.trim();
+    if(!trimmed) return;
+    if(!state.customGroups.includes(trimmed)){ state.customGroups.push(trimmed); saveCustomGroups(); }
+    setActiveGroup(trimmed);
+    render();
+  });
+
+  wireLeadsGridArea();
+}
+
+function wireLeadsGridArea(){
+  $$('#leadsGridArea .sheet-table thead th[data-key]').forEach(th=> th.addEventListener('click', ()=>{
+    const key = th.dataset.key;
+    if(state.sort.key===key) state.sort.dir = state.sort.dir==='asc'?'desc':'asc';
+    else { state.sort.key = key; state.sort.dir='asc'; }
+    refreshLeadsGridArea();
+  }));
+
+  const saveCell = async (el)=>{
+    const tr = el.closest('tr'); if(!tr) return;
+    const id = tr.dataset.id;
+    const lead = state.leads.find(l=>l.id===id);
+    if(!lead) return;
+    const field = el.dataset.field;
+    let value = el.value;
+    if(el.type==='date') value = el.value || null;
+    else value = value.trim();
+    const fields = { [field]: value };
+    if(field==='company_name') fields.company_name_clean = cleanCompany(value);
+    if(field==='email') fields.email_domain = emailDomain(value);
+    Object.assign(lead, fields);
+    try{ await db.updateLead(id, fields); }
+    catch(e){ console.error(e); toast('Could not save change.'); }
+  };
+  $$('#leadsGridArea .cell-input').forEach(el=>{
+    el.addEventListener('focus', ()=>{ const tr=el.closest('tr'); positionFillHandle(tr.dataset.id, el.dataset.field); });
+    if(el.type==='date'){ el.addEventListener('change', ()=>saveCell(el)); }
+    else {
+      el.addEventListener('input', debounce(()=>saveCell(el),500));
+      el.addEventListener('blur', ()=>saveCell(el));
+    }
+  });
+  $$('#leadsGridArea .cell-select').forEach(el=>{
+    el.addEventListener('focus', ()=>{ const tr=el.closest('tr'); positionFillHandle(tr.dataset.id, el.dataset.field); });
+    el.addEventListener('change', async ()=>{
+      el.className = 'cell-select '+statusClass(el.value);
+      await saveCell(el);
+      toast(`Moved to ${el.value}`);
+    });
+  });
+
+  $$('#leadsGridArea button[data-notes]').forEach(btn=> btn.addEventListener('click', ()=> openLeadDetail(btn.dataset.notes)));
+
+  const selAll = $('#selectAllRows');
+  if(selAll) selAll.addEventListener('change', ()=>{
+    const rows = filteredSortedLeads();
+    if(selAll.checked) rows.forEach(l=>state.selectedIds.add(l.id));
+    else rows.forEach(l=>state.selectedIds.delete(l.id));
+    refreshLeadsGridArea();
+  });
+  $$('.rowCheckbox').forEach(cb=> cb.addEventListener('change', ()=>{
+    if(cb.checked) state.selectedIds.add(cb.dataset.id); else state.selectedIds.delete(cb.dataset.id);
+    refreshLeadsGridArea();
+  }));
+  $('#bulkClear')?.addEventListener('click', ()=>{ state.selectedIds.clear(); refreshLeadsGridArea(); });
+  $('#bulkDelete')?.addEventListener('click', async ()=>{
+    const ids = [...state.selectedIds];
+    if(!confirm(`Delete ${ids.length} lead${ids.length===1?'':'s'}? This can't be undone.`)) return;
+    try{
+      await db.deleteLeads(ids);
+      state.leads = state.leads.filter(l=>!ids.includes(l.id));
+      state.selectedIds.clear();
+      toast(`Deleted ${ids.length} lead${ids.length===1?'':'s'}.`);
+      render();
+    }catch(e){ console.error(e); toast('Delete failed.'); }
+  });
+  $('#bulkStatus')?.addEventListener('change', async (e)=>{
+    const val = e.target.value; if(!val) return;
+    const ids = [...state.selectedIds];
+    for(const id of ids){
+      const lead = state.leads.find(l=>l.id===id); if(!lead) continue;
+      lead.status = val;
+      try{ await db.updateLead(id, {status: val}); }catch(err){ console.error(err); }
+    }
+    toast(`Set ${ids.length} lead${ids.length===1?'':'s'} to ${val}.`);
+    render();
+  });
+  $('#bulkMove')?.addEventListener('change', async (e)=>{
+    let val = e.target.value; if(!val) return;
+    if(val==='__new__'){
+      const name = prompt('New sheet name:');
+      if(!name || !name.trim()){ refreshLeadsGridArea(); return; }
+      val = name.trim();
+      if(!state.customGroups.includes(val)){ state.customGroups.push(val); saveCustomGroups(); }
+    }
+    const ids = [...state.selectedIds];
+    for(const id of ids){
+      const lead = state.leads.find(l=>l.id===id); if(!lead) continue;
+      lead.source_list = val;
+      try{ await db.updateLead(id, {source_list: val}); }catch(err){ console.error(err); }
+    }
+    toast(`Moved ${ids.length} lead${ids.length===1?'':'s'} to ${groupLabel(val)}.`);
+    render();
+  });
+}
+
+async function renameGroup(oldName){
+  const newName = prompt('Rename this sheet:', oldName);
+  if(newName==null) return;
+  const trimmed = newName.trim();
+  if(!trimmed || trimmed===oldName) return;
+  const collides = allGroups().some(g=> g!==oldName && g===trimmed);
+  if(collides && !confirm(`A sheet named "${trimmed}" already exists. Merge "${oldName}" into it?`)) return;
+  const idx = state.customGroups.indexOf(oldName);
+  if(idx>-1){ state.customGroups[idx] = trimmed; saveCustomGroups(); }
+  const affected = state.leads.filter(l=>(l.source_list||'')===oldName);
+  for(const l of affected){
+    l.source_list = trimmed;
+    try{ await db.updateLead(l.id, {source_list: trimmed}); }catch(e){ console.error(e); }
+  }
+  if(state.activeGroup===oldName) setActiveGroup(trimmed);
+  toast(`Renamed to "${trimmed}".`);
+  render();
+}
+
+function removeGroupTab(name){
+  const idx = state.customGroups.indexOf(name);
+  if(idx>-1){ state.customGroups.splice(idx,1); saveCustomGroups(); }
+  if(state.activeGroup===name) setActiveGroup(null);
+}
+
+function deleteGroupFlow(name){
+  const affected = state.leads.filter(l=>(l.source_list||'')===name);
+  const count = affected.length;
+  const html = `
+    <div class="modal-head"><h2>Delete sheet</h2><button class="modal-close" id="closeDelSheet">&times;</button></div>
+    <p style="color:var(--text-2)">"${escHtml(groupLabel(name))}" ${count ? `has <b>${count}</b> lead${count===1?'':'s'} in it.` : 'is empty.'}</p>
+    <div class="modal-actions" style="justify-content:flex-start;flex-wrap:wrap">
+      ${count ? `
+      <button class="btn btn-ghost" id="moveThenDelete">Move ${count} lead${count===1?'':'s'} to Unlabeled, then delete sheet</button>
+      <button class="btn btn-danger-ghost" id="deleteWithLeads">Delete sheet and all ${count} lead${count===1?'':'s'}</button>
+      ` : `<button class="btn btn-danger-ghost" id="deleteEmptySheet">Delete empty sheet</button>`}
+      <button class="btn btn-ghost" id="cancelDelSheet">Cancel</button>
+    </div>
+  `;
+  openModal(html);
+  $('#closeDelSheet').addEventListener('click', closeModal);
+  $('#cancelDelSheet').addEventListener('click', closeModal);
+  $('#moveThenDelete')?.addEventListener('click', async ()=>{
+    for(const l of affected){
+      l.source_list = '';
+      try{ await db.updateLead(l.id, {source_list:''}); }catch(e){ console.error(e); }
+    }
+    removeGroupTab(name);
+    toast(`Moved ${count} lead${count===1?'':'s'} to Unlabeled.`);
+    closeModal();
+    render();
+  });
+  $('#deleteWithLeads')?.addEventListener('click', async ()=>{
+    const ids = affected.map(l=>l.id);
+    try{
+      await db.deleteLeads(ids);
+      state.leads = state.leads.filter(l=>!ids.includes(l.id));
+      removeGroupTab(name);
+      toast(`Deleted sheet and ${count} lead${count===1?'':'s'}.`);
+    }catch(e){ console.error(e); toast('Delete failed.'); }
+    closeModal();
+    render();
+  });
+  $('#deleteEmptySheet')?.addEventListener('click', ()=>{
+    removeGroupTab(name);
+    toast('Sheet deleted.');
+    closeModal();
+    render();
+  });
+}
+
+/* ---- drag-to-fill (like Sheets' fill handle): grab the corner square on a
+   focused cell and drag across rows to copy that cell's value into all of them ---- */
+let fillDrag = null;
+function clearFillTargets(){ $$('.fill-target').forEach(td=>td.classList.remove('fill-target')); }
+function positionFillHandle(id, field){
+  $$('.fill-handle').forEach(h=>h.remove());
+  const tr = document.querySelector(`tr[data-id="${CSS.escape(id)}"]`);
+  if(!tr) return;
+  const cellEl = tr.querySelector(`[data-field="${field}"]`);
+  const td = cellEl && cellEl.closest('td');
+  if(!td) return;
+  const handle = document.createElement('div');
+  handle.className = 'fill-handle';
+  td.appendChild(handle);
+}
+function rowsInRange(startId, endId){
+  const trs = $$('tbody tr[data-id]');
+  const startIdx = trs.findIndex(tr=>tr.dataset.id===startId);
+  const endIdx = trs.findIndex(tr=>tr.dataset.id===endId);
+  if(startIdx===-1 || endIdx===-1) return [];
+  const [lo,hi] = startIdx<=endIdx ? [startIdx,endIdx] : [endIdx,startIdx];
+  return trs.slice(lo, hi+1);
+}
+function startFillDrag(handleEl){
+  const td = handleEl.closest('td');
+  const input = td.querySelector('[data-field]');
+  const tr = td.closest('tr');
+  if(!input || !tr) return;
+  fillDrag = { sourceId: tr.dataset.id, field: input.dataset.field, value: input.value, hoverId: null };
+  document.addEventListener('mousemove', onFillMove);
+  document.addEventListener('mouseup', onFillUp);
+}
+function onFillMove(e){
+  if(!fillDrag) return;
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const tr = el && el.closest('tr[data-id]');
+  if(!tr) return;
+  clearFillTargets();
+  const range = rowsInRange(fillDrag.sourceId, tr.dataset.id);
+  range.forEach(r=>{
+    const cellEl = r.querySelector(`[data-field="${fillDrag.field}"]`);
+    const td = cellEl && cellEl.closest('td');
+    if(td) td.classList.add('fill-target');
+  });
+  fillDrag.hoverId = tr.dataset.id;
+}
+async function onFillUp(){
+  document.removeEventListener('mousemove', onFillMove);
+  document.removeEventListener('mouseup', onFillUp);
+  const drag = fillDrag;
+  fillDrag = null;
+  clearFillTargets();
+  if(!drag || !drag.hoverId || drag.hoverId===drag.sourceId) return;
+  const { sourceId, field, value, hoverId } = drag;
+  const range = rowsInRange(sourceId, hoverId).filter(tr=>tr.dataset.id!==sourceId);
+  if(!range.length) return;
+  const isLead = range[0].closest('table')?.classList.contains('sheet-table') && state.leads.some(l=>l.id===range[0].dataset.id);
+  let count = 0;
+  for(const tr of range){
+    const id = tr.dataset.id;
+    const collection = isLead ? state.leads : state.campaigns;
+    const record = collection.find(r=>r.id===id);
+    if(!record) continue;
+    const el = tr.querySelector(`[data-field="${field}"]`);
+    if(el){
+      el.value = value;
+      if(el.tagName==='SELECT') el.className = el.classList.contains('cell-select') ? 'cell-select '+(isLead?statusClass(value):('cstatus-'+value.replace(/\s+/g,'-'))) : el.className;
+    }
+    const fields = { [field]: field==='next_follow_up' || field==='date' ? (value||null) : value };
+    if(field==='company_name') fields.company_name_clean = cleanCompany(value);
+    if(field==='email') fields.email_domain = emailDomain(value);
+    Object.assign(record, fields);
+    try{
+      if(isLead) await db.updateLead(id, fields);
+      else await db.updateCampaign(id, fields);
+      count++;
+    }catch(e){ console.error(e); }
+  }
+  if(count===0) toast('Could not update those rows — check console.');
+  else toast(`Updated ${count} row${count===1?'':'s'}.`);
+}
+
+/* ============================= KANBAN ============================= */
+function renderKanban(){
+  const groups = allGroups();
+  const pool = state.activeGroup===null ? state.leads : state.leads.filter(l=>(l.source_list||'')===state.activeGroup);
+  return `
+  <div class="toolbar reveal">
+    <select class="filter-select" id="kanbanGroupFilter">
+      <option value="__all__" ${state.activeGroup===null?'selected':''}>All sheets</option>
+      ${groups.map(g=>`<option value="${escHtml(g)}" ${state.activeGroup===g?'selected':''}>${escHtml(groupLabel(g))}</option>`).join('')}
+    </select>
+  </div>
+  <div class="kanban reveal">
+    ${STATUSES.map(s=>{
+      const items = pool.filter(l=>l.status===s);
+      return `<div class="kcol" data-status="${s}">
+        <div class="kcol-head"><h3 class="${statusClass(s)}">${s}</h3><span class="kcol-count">${items.length}</span></div>
+        ${items.map(l=>`
+          <div class="kcard" draggable="true" data-id="${l.id}">
+            <div class="kcard-company">${escHtml(leadDisplayName(l))}</div>
+            <div class="kcard-meta">${escHtml(l.contact_person||'No contact')}${l.next_follow_up?` · follow-up ${fmtDate(l.next_follow_up)}`:''}</div>
+          </div>`).join('')}
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function wireKanban(){
+  const gf = $('#kanbanGroupFilter');
+  if(gf) gf.addEventListener('change', ()=>{ setActiveGroup(gf.value==='__all__'?null:gf.value); render(); });
+  $$('.kcard').forEach(card=>{
+    card.addEventListener('dragstart', e=>{ card.classList.add('dragging'); e.dataTransfer.setData('text/plain', card.dataset.id); });
+    card.addEventListener('dragend', ()=> card.classList.remove('dragging'));
+    card.addEventListener('click', ()=> openLeadDetail(card.dataset.id));
+  });
+  $$('.kcol').forEach(col=>{
+    col.addEventListener('dragover', e=>{ e.preventDefault(); col.classList.add('dragover'); });
+    col.addEventListener('dragleave', ()=> col.classList.remove('dragover'));
+    col.addEventListener('drop', async e=>{
+      e.preventDefault(); col.classList.remove('dragover');
+      const id = e.dataTransfer.getData('text/plain');
+      const newStatus = col.dataset.status;
+      const lead = state.leads.find(l=>l.id===id);
+      if(!lead || lead.status===newStatus) return;
+      lead.status = newStatus;
+      render();
+      try{ await db.updateLead(id, { status:newStatus }); toast(`Moved to ${newStatus}`); }
+      catch(err){ console.error(err); toast('Could not save status change.'); }
+    });
+  });
+}
+
+/* ============================= CAMPAIGNS ============================= */
+function campaignStatusClass(s){ return 'cstatus-'+(s||'').replace(/\s+/g,'-'); }
+
+function renderCampaignsView(){
+  const rows = state.campaigns.slice().sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+  const totalMails = rows.reduce((sum,c)=> sum + (Number(c.mail_count)||0), 0);
+  return `
+  <div class="toolbar reveal">
+    <div style="color:var(--text-3);font-size:.85rem">${rows.length} campaign${rows.length===1?'':'s'} · ${totalMails.toLocaleString()} emails logged</div>
+    <button class="btn btn-primary btn-sm" id="addCampaignRow" style="margin-left:auto">+ Add campaign</button>
+  </div>
+  <div class="sheet-shell reveal">
+    <div class="sheet-scroll">
+      <table class="sheet-table">
+        <thead><tr>
+          <th class="rownum-head">#</th>
+          <th>Dataset / campaign</th>
+          <th>Date</th>
+          <th>Number of mails</th>
+          <th>Status</th>
+          <th>Response / notes</th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+          ${rows.length ? rows.map((c,i)=>`
+            <tr data-id="${c.id}">
+              <td class="rownum">${i+1}</td>
+              <td><input class="cell-input" data-field="name" value="${escHtml(c.name||'')}" placeholder="Dataset name"></td>
+              <td><input type="date" class="cell-input" data-field="date" value="${c.date||''}"></td>
+              <td><input type="number" min="0" class="cell-input" data-field="mail_count" value="${c.mail_count||0}"></td>
+              <td><select class="cell-select ${campaignStatusClass(c.status)}" data-field="status">${CAMPAIGN_STATUSES.map(s=>`<option value="${s}" ${c.status===s?'selected':''}>${s}</option>`).join('')}</select></td>
+              <td><input class="cell-input" data-field="response" value="${escHtml(c.response||'')}" placeholder="Notes, reply rate, anything worth remembering"></td>
+              <td><button class="rowbtn" data-delcampaign="${c.id}" title="Delete row">🗑</button></td>
+            </tr>`).join('') : `<tr><td colspan="7" style="text-align:center;color:var(--text-3);padding:2.5rem;border:none">No campaigns logged yet. Importing a sheet adds one automatically, or add one by hand.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function wireCampaignsView(){
+  const saveCell = async (el)=>{
+    const tr = el.closest('tr'); if(!tr) return;
+    const id = tr.dataset.id;
+    const c = state.campaigns.find(x=>x.id===id);
+    if(!c) return;
+    const field = el.dataset.field;
+    let value = el.value;
+    if(el.type==='date') value = value || null;
+    else if(el.type==='number'){ value = Math.max(0, Number(value)||0); el.value = value; }
+    else value = value.trim();
+    const fields = { [field]: value };
+    Object.assign(c, fields);
+    try{ await db.updateCampaign(id, fields); }
+    catch(e){ console.error(e); toast('Could not save change.'); }
+  };
+  $$('.cell-input').forEach(el=>{
+    el.addEventListener('focus', ()=>{ const tr=el.closest('tr'); positionFillHandle(tr.dataset.id, el.dataset.field); });
+    if(el.type==='date' || el.type==='number'){ el.addEventListener('change', ()=>saveCell(el)); }
+    else {
+      el.addEventListener('input', debounce(()=>saveCell(el),500));
+      el.addEventListener('blur', ()=>saveCell(el));
+    }
+  });
+  $$('.cell-select').forEach(el=>{
+    el.addEventListener('focus', ()=>{ const tr=el.closest('tr'); positionFillHandle(tr.dataset.id, el.dataset.field); });
+    el.addEventListener('change', async ()=>{
+      el.className = 'cell-select '+campaignStatusClass(el.value);
+      await saveCell(el);
+    });
+  });
+  $$('button[data-delcampaign]').forEach(btn=> btn.addEventListener('click', async ()=>{
+    const id = btn.dataset.delcampaign;
+    if(!confirm('Delete this campaign row?')) return;
+    try{
+      await db.deleteCampaign(id);
+      state.campaigns = state.campaigns.filter(c=>c.id!==id);
+      toast('Campaign row deleted.');
+      render();
+    }catch(e){ console.error(e); toast('Delete failed.'); }
+  }));
+  $('#addCampaignRow')?.addEventListener('click', async ()=>{
+    try{
+      const row = await db.insertCampaign({ name:'New campaign', date: todayISO(), mail_count:0, status:'Scheduled', response:'' });
+      state.campaigns.unshift(row);
+      render();
+    }catch(e){ console.error(e); toast('Could not add campaign row.'); }
+  });
+}
+
+/* ============================= MODAL SHELL ============================= */
+function openModal(html, {wide=false}={}){
+  const host = $('#modalHost');
+  host.innerHTML = `<div class="overlay" id="ovl"><div class="modal ${wide?'wide':''}">${html}</div></div>`;
+  $('#ovl').addEventListener('mousedown', e=>{ if(e.target.id==='ovl') closeModal(); });
+  document.addEventListener('keydown', escCloseOnce);
+}
+function escCloseOnce(e){ if(e.key==='Escape'){ closeModal(); } }
+function closeModal(){ $('#modalHost').innerHTML=''; document.removeEventListener('keydown', escCloseOnce); }
+
+/* ============================= LEAD DETAIL / ADD LEAD ============================= */
+async function openLeadDetail(id){
+  const isNew = !id;
+  const lead = isNew ? null : state.leads.find(l=>l.id===id);
+  let notes = [];
+  if(!isNew){
+    if(state.notesCache.has(id)) notes = state.notesCache.get(id);
+    else { notes = await db.fetchNotes([id]); state.notesCache.set(id, notes); }
+  }
+  const html = `
+    <div class="modal-head">
+      <div>
+        <h2>${isNew?'Add lead':escHtml(leadDisplayName(lead))}</h2>
+        ${!isNew?`<div class="lead-meta">Added ${fmtDate(lead.date_added)}</div>`:''}
+      </div>
+      <button class="modal-close" id="closeLead">&times;</button>
+    </div>
+    <div id="dupWarning"></div>
+    <div class="lead-fields">
+      <div class="field"><label>Company name</label><input id="f_company" value="${isNew?'':escHtml(lead.company_name)}" placeholder="Adventure Travel Co"></div>
+      <div class="field"><label>Contact person</label><input id="f_contact" value="${isNew?'':escHtml(lead.contact_person||'')}" placeholder="Jane Smith"></div>
+      <div class="field"><label>Email</label><input id="f_email" value="${isNew?'':escHtml(lead.email||'')}" placeholder="jane@company.com"></div>
+      <div class="field"><label>Status</label><select id="f_status">${STATUSES.map(s=>`<option value="${s}" ${(!isNew&&lead.status===s)||(isNew&&s==='Not Now')?'selected':''}>${s}</option>`).join('')}</select></div>
+      <div class="field"><label>Sheet</label><input id="f_source" value="${isNew?'':escHtml(lead.source_list||'')}" placeholder="Q3 Bhutan list"></div>
+      <div class="field">
+        <label>Last contacted</label>
+        <div style="display:flex;gap:.5rem;align-items:center">
+          <input type="date" id="f_lastcontacted" value="${isNew?'':(lead.last_contacted||'')}" style="flex:1">
+          <button type="button" class="btn btn-ghost btn-sm" id="btnLogToday">Today</button>
+        </div>
+      </div>
+      <div class="field"><label>Next follow-up</label><input type="date" id="f_followup" value="${isNew?'':(lead.next_follow_up||'')}"></div>
+    </div>
+    ${!isNew?`
+    <span class="mono">Notes timeline</span>
+    <div class="timeline" id="timeline">
+      ${notes.length? notes.map(n=>`<div class="tnote"><div class="tnote-date">${new Date(n.created_at).toLocaleString()}</div><div class="tnote-text">${escHtml(n.note)}</div></div>`).join('') : `<div class="empty-note">No notes yet.</div>`}
+    </div>
+    <div class="note-add">
+      <textarea id="newNote" placeholder="Log a call, email, or update…"></textarea>
+      <button class="btn btn-ghost" id="btnAddNote">Add note</button>
+    </div>
+    `:`
+    <div class="field"><label>First note (optional)</label><textarea id="f_note" placeholder="How this lead came in, or what you already know…"></textarea></div>
+    `}
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="cancelLead">Cancel</button>
+      <button class="btn btn-primary" id="saveLead">${isNew?'Add lead':'Save changes'}</button>
+    </div>
+  `;
+  openModal(html);
+  $('#closeLead').addEventListener('click', closeModal);
+  $('#cancelLead').addEventListener('click', closeModal);
+  $('#btnLogToday').addEventListener('click', ()=>{ $('#f_lastcontacted').value = todayISO(); });
+
+  if(isNew){
+    const checkDup = debounce(()=>{
+      const company = $('#f_company').value.trim();
+      const email = $('#f_email').value.trim();
+      const contact = $('#f_contact').value.trim();
+      if(!company && !email && !contact){ $('#dupWarning').innerHTML=''; return; }
+      const candidate = { company_name: company, company_name_clean: cleanCompany(company), email, email_domain: emailDomain(email), contact_person: contact };
+      const matches = findMatches(candidate, state.leads);
+      if(matches.length){
+        const top = matches[0];
+        $('#dupWarning').innerHTML = `<div class="warn-banner"><b>Possible duplicate</b> — ${top.reasons.join(', ')}. Matches "${escHtml(leadDisplayName(top.lead))}" (${top.lead.status}).</div>`;
+      } else $('#dupWarning').innerHTML = '';
+    }, 250);
+    $('#f_company').addEventListener('input', checkDup);
+    $('#f_email').addEventListener('input', checkDup);
+    $('#f_contact').addEventListener('input', checkDup);
+  }
+
+  if(!isNew){
+    $('#btnAddNote').addEventListener('click', async ()=>{
+      const text = $('#newNote').value.trim();
+      if(!text) return;
+      try{
+        const row = await db.insertNote(id, text);
+        notes = [row, ...notes];
+        state.notesCache.set(id, notes);
+        $('#timeline').innerHTML = notes.map(n=>`<div class="tnote"><div class="tnote-date">${new Date(n.created_at).toLocaleString()}</div><div class="tnote-text">${escHtml(n.note)}</div></div>`).join('');
+        $('#newNote').value='';
+        toast('Note added.');
+      }catch(e){ console.error(e); toast('Could not save note.'); }
+    });
+  }
+
+  $('#saveLead').addEventListener('click', async ()=>{
+    const company = $('#f_company').value.trim();
+    const contactVal = $('#f_contact').value.trim();
+    const emailVal = $('#f_email').value.trim();
+    if(!company && !contactVal && !emailVal){ toast('Add at least a company, contact, or email.'); return; }
+    const fields = {
+      company_name: company,
+      company_name_clean: cleanCompany(company),
+      contact_person: $('#f_contact').value.trim(),
+      email: $('#f_email').value.trim(),
+      email_domain: emailDomain($('#f_email').value.trim()),
+      status: $('#f_status').value,
+      source_list: $('#f_source').value.trim(),
+      last_contacted: $('#f_lastcontacted').value || null,
+      next_follow_up: $('#f_followup').value || null,
+    };
+    try{
+      if(isNew){
+        fields.date_added = todayISO();
+        const [row] = await db.insertLeads([fields]);
+        const note = $('#f_note').value.trim();
+        if(note) await db.insertNote(row.id, note);
+        toast('Lead added.');
+      } else {
+        await db.updateLead(id, fields);
+        toast('Saved.');
+      }
+      await refreshLeads();
+      closeModal();
+      render();
+    }catch(e){ console.error(e); toast('Save failed — check console.'); }
+  });
+}
+
+/* ============================= IMPORT FLOW ============================= */
+const IMPORT_FIELDS = [
+  {key:'company', label:'Company name', required:false, hints:['company','organisation','organization','business','account']},
+  {key:'contact', label:'Contact person', required:false, hints:['contact','poc','person']},
+  {key:'email', label:'Email', required:false, hints:['email','e-mail','mail']},
+  {key:'notes', label:'Notes', required:false, hints:['note','comment','remark']},
+  {key:'status', label:'Status', required:false, hints:['status','stage']},
+];
+
+let importQueue = []; // {fileName, headers, rows: [{}], mapping}
+let importPreviewRows = []; // built after mapping
+
+function openImportModal(){
+  const html = `
+    <div class="modal-head"><h2>Import leads</h2><button class="modal-close" id="closeImp">&times;</button></div>
+    <div class="dropzone" id="dropzone">
+      <h3>Drag files here, or click to browse</h3>
+      <p style="font-size:.85rem">.xlsx or .csv — one or many at once</p>
+      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" multiple hidden>
+    </div>
+  `;
+  openModal(html);
+  $('#closeImp').addEventListener('click', closeModal);
+  const dz = $('#dropzone'), fi = $('#fileInput');
+  dz.addEventListener('click', ()=> fi.click());
+  fi.addEventListener('change', ()=> handleFiles(fi.files));
+  ['dragenter','dragover'].forEach(ev=> dz.addEventListener(ev, e=>{ e.preventDefault(); dz.classList.add('dragover'); }));
+  ['dragleave','drop'].forEach(ev=> dz.addEventListener(ev, e=>{ e.preventDefault(); dz.classList.remove('dragover'); }));
+  dz.addEventListener('drop', e=> handleFiles(e.dataTransfer.files));
+}
+
+async function handleFiles(fileList){
+  const files = Array.from(fileList);
+  if(!files.length) return;
+  importQueue = [];
+  for(const file of files){
+    try{
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, {type:'array'});
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, {header:1, defval:''});
+      if(!rows.length) continue;
+      const headers = rows[0].map(h=>String(h||'').trim());
+      const dataRows = rows.slice(1).filter(r=> r.some(c=>String(c||'').trim()!==''));
+      importQueue.push({ fileName: file.name, headers, dataRows });
+    }catch(e){ console.error(e); toast(`Could not read ${file.name}`); }
+  }
+  if(importQueue.length) mapNextFile();
+}
+
+function headerSignature(headers){ return headers.map(h=>h.toLowerCase().trim()).sort().join('|'); }
+
+function guessMapping(headers){
+  const map = {};
+  const used = new Set();
+  IMPORT_FIELDS.forEach(f=>{
+    let found = '';
+    for(const h of headers){
+      if(used.has(h)) continue;
+      const hl = h.toLowerCase();
+      if(f.hints.some(hint=> hl.includes(hint))){ found = h; break; }
+    }
+    if(found) used.add(found);
+    map[f.key] = found;
+  });
+  return map;
+}
+
+function mapNextFile(){
+  const item = importQueue.find(q=>!q.mapping);
+  if(!item){ buildPreview(); return; }
+  const sig = headerSignature(item.headers);
+  const remembered = state.columnMaps[sig];
+  if(remembered){ item.mapping = remembered; item.source_list = item.fileName.replace(/\.[^.]+$/,''); mapNextFile(); return; }
+  const guess = guessMapping(item.headers);
+  const html = `
+    <div class="modal-head"><h2>Map columns</h2><button class="modal-close" id="closeMap">&times;</button></div>
+    <p style="color:var(--text-2);font-size:.88rem;margin-top:-.6rem">${escHtml(item.fileName)} — this mapping is remembered for files with the same headers.</p>
+    ${IMPORT_FIELDS.map(f=>`
+      <div class="field">
+        <label>${f.label}${f.required?' (required)':''}</label>
+        <select id="map_${f.key}">
+          <option value="">— None —</option>
+          ${item.headers.map(h=>`<option value="${escHtml(h)}" ${guess[f.key]===h?'selected':''}>${escHtml(h)}</option>`).join('')}
+        </select>
+      </div>`).join('')}
+    <div class="field"><label>Sheet name for this file</label><input id="map_source" value="${escHtml(item.fileName.replace(/\.[^.]+$/,''))}"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="cancelMap">Cancel import</button>
+      <button class="btn btn-primary" id="confirmMap">Continue</button>
+    </div>
+  `;
+  openModal(html);
+  $('#closeMap').addEventListener('click', ()=>{ importQueue=[]; closeModal(); });
+  $('#cancelMap').addEventListener('click', ()=>{ importQueue=[]; closeModal(); });
+  $('#confirmMap').addEventListener('click', ()=>{
+    const mapping = {};
+    IMPORT_FIELDS.forEach(f=> mapping[f.key] = $('#map_'+f.key).value);
+    item.mapping = mapping;
+    item.source_list = $('#map_source').value.trim() || item.fileName;
+    state.columnMaps[sig] = mapping;
+    localStorage.setItem('oct_column_maps_v1', JSON.stringify(state.columnMaps));
+    mapNextFile();
+  });
+}
+
+function buildPreview(){
+  importPreviewRows = [];
+  const acceptedPool = []; // rows accepted as new within this import, participate in later matching
+  for(const item of importQueue){
+    const m = item.mapping;
+    const idx = h => item.headers.indexOf(h);
+    item.dataRows.forEach(r=>{
+      const company = m.company ? String(r[idx(m.company)]||'').trim() : '';
+      const contact = m.contact ? String(r[idx(m.contact)]||'').trim() : '';
+      const email = m.email ? String(r[idx(m.email)]||'').trim() : '';
+      if(!company && !contact && !email) return;
+      const notes = m.notes ? String(r[idx(m.notes)]||'').trim() : '';
+      const rawStatus = m.status ? String(r[idx(m.status)]||'').trim() : '';
+      const candidate = {
+        company_name: company,
+        company_name_clean: cleanCompany(company),
+        contact_person: contact,
+        email,
+        email_domain: emailDomain(email),
+        status: normalizeStatus(rawStatus),
+        source_list: item.source_list,
+        _importNote: notes,
+      };
+      const pool = state.leads.concat(acceptedPool);
+      const matches = findMatches(candidate, pool);
+      const previewRow = { candidate, matches, action: matches.length ? 'skip' : 'add', mergeTargetId: matches.length ? matches[0].lead.id : null };
+      importPreviewRows.push(previewRow);
+      if(!matches.length) acceptedPool.push(candidate);
+    });
+  }
+  renderPreview();
+}
+
+async function renderPreview(){
+  const dupCount = importPreviewRows.filter(r=>r.matches.length).length;
+  const newCount = importPreviewRows.length - dupCount;
+  const matchedIds = [...new Set(importPreviewRows.flatMap(r=>r.matches.map(m=>m.lead.id)))];
+  let notesById = {};
+  if(matchedIds.length){
+    const notes = await db.fetchNotes(matchedIds);
+    notes.forEach(n=>{ if(!notesById[n.lead_id]) notesById[n.lead_id] = n; });
+  }
+  const html = `
+    <div class="modal-head"><h2>Review import</h2><button class="modal-close" id="closePrev">&times;</button></div>
+    <div class="preview-summary">
+      <div><div class="stat-num">${importPreviewRows.length}</div><div class="stat-label">Rows found</div></div>
+      <div><div class="stat-num" style="color:var(--green)">${newCount}</div><div class="stat-label">New</div></div>
+      <div><div class="stat-num" style="color:var(--amber)">${dupCount}</div><div class="stat-label">Possible duplicates</div></div>
+    </div>
+    <div class="preview-toolbar">
+      <button class="btn btn-ghost btn-sm" id="skipAllDup">Skip all duplicates</button>
+      <button class="btn btn-ghost btn-sm" id="addAllDup">Add all as new</button>
+    </div>
+    <div class="preview-scroll">
+      ${importPreviewRows.map((r,i)=>{
+        const c = r.candidate;
+        const isDup = r.matches.length>0;
+        const best = r.matches[0];
+        const lastNote = best ? notesById[best.lead.id] : null;
+        return `<div class="prow ${isDup?'dup':''}">
+          <div>
+            <div class="td-company">${escHtml(leadDisplayName(c))}</div>
+            <div class="td-sub">${escHtml(c.contact_person||'')} ${c.email?('· '+escHtml(c.email)):''}</div>
+          </div>
+          <div>
+            ${isDup ? `<span class="badge status-Warm">Possible duplicate</span><div class="prow-reasons">${best.reasons.map(rs=>`<span class="reason-chip">${rs}</span>`).join('')}</div>` : `<span class="badge status-Won">New</span>`}
+          </div>
+          <div>
+            ${isDup ? `<div class="prow-match">Matches <b>${escHtml(leadDisplayName(best.lead))}</b> (${best.lead.status})${lastNote?`<br>Last note: "${escHtml(lastNote.note.slice(0,80))}${lastNote.note.length>80?'…':''}"`:''}</div>
+            <select data-idx="${i}" class="rowAction">
+              <option value="skip" selected>Skip</option>
+              <option value="add">Add as new</option>
+              <option value="merge">Merge into existing</option>
+            </select>` : `<select data-idx="${i}" class="rowAction"><option value="add" selected>Add as new</option><option value="skip">Skip</option></select>`}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="cancelPrev">Cancel</button>
+      <button class="btn btn-primary" id="commitImport">Commit import</button>
+    </div>
+  `;
+  openModal(html, {wide:true});
+  $('#closePrev').addEventListener('click', ()=>{ importQueue=[]; closeModal(); });
+  $('#cancelPrev').addEventListener('click', ()=>{ importQueue=[]; closeModal(); });
+  $$('.rowAction').forEach(sel=> sel.addEventListener('change', e=>{
+    importPreviewRows[+e.target.dataset.idx].action = e.target.value;
+  }));
+  $('#skipAllDup').addEventListener('click', ()=>{
+    importPreviewRows.forEach(r=>{ if(r.matches.length) r.action='skip'; });
+    renderPreview();
+  });
+  $('#addAllDup').addEventListener('click', ()=>{
+    importPreviewRows.forEach(r=>{ if(r.matches.length) r.action='add'; });
+    renderPreview();
+  });
+  $('#commitImport').addEventListener('click', commitImport);
+}
+
+async function commitImport(){
+  const toInsert = [];
+  const toMerge = [];
+  importPreviewRows.forEach(r=>{
+    if(r.action==='add') toInsert.push(r);
+    else if(r.action==='merge') toMerge.push(r);
+  });
+  try{
+    if(toInsert.length){
+      const rows = toInsert.map(r=>({
+        company_name: r.candidate.company_name,
+        company_name_clean: r.candidate.company_name_clean,
+        contact_person: r.candidate.contact_person,
+        email: r.candidate.email,
+        email_domain: r.candidate.email_domain,
+        status: r.candidate.status,
+        source_list: r.candidate.source_list,
+        date_added: todayISO(),
+      }));
+      const inserted = await db.insertLeads(rows);
+      // Notes are secondary to the leads themselves — a note failing to save
+      // shouldn't make an otherwise-successful import report as "failed".
+      for(let i=0;i<inserted.length;i++){
+        const note = toInsert[i].candidate._importNote;
+        if(note){
+          try{ await db.insertNote(inserted[i].id, note); }
+          catch(e){ console.error('Note insert failed for', inserted[i].id, e); }
+        }
+      }
+    }
+    for(const r of toMerge){
+      try{
+        const target = r.matches.find(m=>m.lead.id===r.mergeTargetId)?.lead || r.matches[0].lead;
+        const fields = {};
+        if(r.candidate.contact_person && !target.contact_person) fields.contact_person = r.candidate.contact_person;
+        if(r.candidate.email && !target.email){ fields.email = r.candidate.email; fields.email_domain = r.candidate.email_domain; }
+        if(Object.keys(fields).length) await db.updateLead(target.id, fields);
+        const noteText = r.candidate._importNote
+          ? `Merged from import (${r.candidate.source_list}): ${r.candidate._importNote}`
+          : `Merged duplicate from import: ${r.candidate.source_list}`;
+        await db.insertNote(target.id, noteText);
+      }catch(e){ console.error('Merge failed for row', r.candidate.company_name, e); }
+    }
+    try{
+      const bySource = {};
+      importPreviewRows.forEach(r=>{
+        const src = r.candidate.source_list || 'Unlabeled';
+        bySource[src] = (bySource[src]||0) + 1;
+      });
+      for(const [name, count] of Object.entries(bySource)){
+        const row = await db.insertCampaign({ name, date: todayISO(), mail_count: count, status:'Completed', response:'' });
+        state.campaigns.unshift(row);
+      }
+    }catch(e){ console.error('Campaign log failed', e); }
+    await refreshLeads();
+    state.notesCache.clear();
+    closeModal();
+    const importedSources = [...new Set(importPreviewRows.map(r=>r.candidate.source_list).filter(Boolean))];
+    if(importedSources.length===1) setActiveGroup(importedSources[0]);
+    importQueue = [];
+    toast(`Imported ${toInsert.length} new, merged ${toMerge.length}.`);
+    setView('leads');
+  }catch(e){ console.error(e); toast('Import failed — check console.'); }
+}
+</script>
+</body>
+</html>
