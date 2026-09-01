@@ -8,7 +8,7 @@
 <link rel="icon" href="favicon32.png" sizes="32x32" type="image/png">
 <link rel="icon" href="favicon16.png" sizes="16x16" type="image/png">
 <link rel="icon" href="favicon192.png" sizes="192x192" type="image/png">
-<link rel="apple-touch-icon" href="favicon-180.png">
+<link rel="apple-touch-icon" href="favicon180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Manrope:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Fraunces:ital,wght@1,500&display=swap" rel="stylesheet">
@@ -442,6 +442,25 @@ function toast(msg,type='ok'){
   setTimeout(()=>el.remove(),3400);
 }
 
+function csvCell(v){
+  const s = v==null ? '' : String(v);
+  return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+}
+function toCSV(columns, rows){
+  const lines = [columns.map(c=>csvCell(c.label)).join(',')];
+  for(const row of rows) lines.push(columns.map(c=>csvCell(c.get(row))).join(','));
+  return lines.join('\r\n');
+}
+function downloadCSV(filename, csvText){
+  const blob = new Blob(['﻿'+csvText], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+function safeFileSlug(s){ return (s||'').trim().replace(/[^a-z0-9]+/gi,'-').replace(/^-+|-+$/g,'').toLowerCase() || 'export'; }
+
 function normLoose(s){ return (s||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
 
 function cleanCompany(name){
@@ -497,64 +516,116 @@ function normalizeStatus(raw){
 }
 function leadDisplayName(l){ return (l.company_name && l.company_name.trim()) || (l.contact_person && l.contact_person.trim()) || (l.email && l.email.trim()) || '(unnamed lead)'; }
 
-const NAME_STOPWORDS = new Set(['mr','ms','mrs','dr','and','the']);
-function nameTokens(s){
-  return (s||'').toLowerCase().split(/[^a-z]+/).filter(t=> t.length>=3 && !NAME_STOPWORDS.has(t));
-}
-function contactMatch(a,b){
-  const ta = nameTokens(a), tb = nameTokens(b);
-  if(!ta.length || !tb.length) return false;
-  for(const x of ta) for(const y of tb){
-    if(x===y || similarity(x,y) >= 0.85) return true;
-  }
-  return false;
-}
-
-/* dedup engine: candidate vs pool of {company_name, company_name_clean, email, email_domain, contact_person} */
 function scoreReasons(reasons){
   let s=0;
-  if(reasons.includes('exact email')) s+=100;
-  if(reasons.includes('exact company name')) s+=50;
-  if(reasons.includes('same email domain')) s+=20;
-  if(reasons.includes('same contact person')) s+=15;
-  if(reasons.includes('similar company name')) s+=10;
+  if(reasons.some(r=>r.startsWith('existing client'))) s+=100;
+  if(reasons.includes('already said no')) s+=90;
+  if(reasons.includes('exact email match')) s+=50;
   return s;
 }
-function findMatches(candidate, pool){
-  const matches = [];
+
+/* Dedup engine, indexed.
+   This isn't general "possible duplicate" flagging — plain re-appearances of
+   a company or contact name across sheets are fine and expected here. It
+   flags exactly three things, by design: the literal same email address
+   showing up again, anyone whose email or company matches an existing WON
+   lead (an actual client, or a coworker of one), and the exact email of
+   someone marked Dead (already said no). Nothing else — no fuzzy name
+   matching — trips a flag.
+   Indexed by email/domain/company rather than a flat n^2 scan so a several-
+   hundred-row import stays fast: each row only compares against the (small)
+   bucket of existing leads it could plausibly match. */
+function createDedupIndex(){
+  return {
+    byEmail: new Map(),
+    byDomain: new Map(),
+    byCleanExact: new Map(),
+    byLoose: new Map(),
+    byCleanPrefix: new Map(),
+  };
+}
+function idxPush(map, key, val){
+  if(!key) return;
+  if(!map.has(key)) map.set(key, []);
+  map.get(key).push(val);
+}
+function indexAdd(idx, record){
+  const email = (record.email||'').toLowerCase().trim();
+  idxPush(idx.byEmail, email, record);
+  const domain = record.email_domain || emailDomain(record.email);
+  idxPush(idx.byDomain, domain, record);
+  const clean = record.company_name_clean || cleanCompany(record.company_name);
+  if(clean){
+    idxPush(idx.byCleanExact, clean, record);
+    idxPush(idx.byCleanPrefix, clean.slice(0,2), record);
+  }
+  const loose = normLoose(record.company_name);
+  idxPush(idx.byLoose, loose, record);
+}
+function buildDedupIndex(records){
+  const idx = createDedupIndex();
+  for(const r of records) indexAdd(idx, r);
+  return idx;
+}
+
+function findMatches(candidate, idx){
+  const found = new Map(); // lead -> Set(reasons)
+  const addReason = (lead, reason)=>{
+    if(candidate.id && lead.id===candidate.id) return;
+    if(!found.has(lead)) found.set(lead, new Set());
+    found.get(lead).add(reason);
+  };
+
   const candEmail = (candidate.email||'').toLowerCase().trim();
+  const matchedViaEmail = new Set();
+  if(candEmail && idx.byEmail.has(candEmail)){
+    for(const r of idx.byEmail.get(candEmail)){
+      matchedViaEmail.add(r);
+      if(r.status==='Won') addReason(r,'existing client');
+      else if(r.status==='Dead') addReason(r,'already said no');
+      else addReason(r,'exact email match');
+    }
+  }
+
+  // Client protection is company-wide (won't email a coworker of a client
+  // either), so this checks exact/near company name and shared domain — but
+  // only counts it when the matched lead is actually a Won client. A Dead
+  // lead's company isn't otherwise off-limits — just that one person.
+  // Skip leads already flagged via the exact-email check above so a client
+  // whose email also happens to share their own domain/company doesn't get
+  // both "existing client" and "existing client — same company" chips.
   const candClean = candidate.company_name_clean || cleanCompany(candidate.company_name);
   const candLoose = normLoose(candidate.company_name);
-  const candDomain = candidate.email_domain || emailDomain(candidate.email);
-  for(const ex of pool){
-    if(candidate.id && ex.id===candidate.id) continue;
-    const reasons = [];
-    const exEmail = (ex.email||'').toLowerCase().trim();
-    if(candEmail && exEmail && candEmail===exEmail) reasons.push('exact email');
-    const exClean = ex.company_name_clean || cleanCompany(ex.company_name);
-    let companyExact = (candClean && exClean && candClean===exClean);
-    if(!companyExact){
-      const exLoose = normLoose(ex.company_name);
-      if(candLoose && exLoose && candLoose===exLoose) companyExact = true;
-    }
-    if(companyExact) reasons.push('exact company name');
-    else if(candClean && exClean && candClean.length>=3 && exClean.length>=3){
+  const exactCompany = new Set();
+  if(candClean && idx.byCleanExact.has(candClean)) for(const r of idx.byCleanExact.get(candClean)){ if(r.status==='Won' && !matchedViaEmail.has(r)){ addReason(r,'existing client — same company'); exactCompany.add(r); } }
+  if(candLoose && idx.byLoose.has(candLoose)) for(const r of idx.byLoose.get(candLoose)){ if(r.status==='Won' && !matchedViaEmail.has(r)){ addReason(r,'existing client — same company'); exactCompany.add(r); } }
+
+  if(candClean && candClean.length>=3){
+    const bucket = idx.byCleanPrefix.get(candClean.slice(0,2));
+    if(bucket) for(const r of bucket){
+      if(r.status!=='Won' || exactCompany.has(r) || matchedViaEmail.has(r)) continue;
+      const exClean = r.company_name_clean || cleanCompany(r.company_name);
+      if(!exClean || exClean.length<3) continue;
       const contains = candClean.length>=4 && exClean.length>=4 && (candClean.includes(exClean) || exClean.includes(candClean));
       // Levenshtein distance can never be smaller than the length difference,
       // so similarity can't reach 0.65 once the lengths are too far apart —
       // skip the (relatively expensive) computation entirely in that case.
-      // Same match results, much less work on large imports.
       const maxLen = Math.max(candClean.length, exClean.length);
       const lenDiff = Math.abs(candClean.length - exClean.length);
       const worthChecking = !contains && lenDiff <= maxLen * 0.35;
       const sim = worthChecking ? similarity(candClean, exClean) : 0;
-      if(sim >= 0.65 || contains) reasons.push('similar company name');
+      if(sim >= 0.65 || contains) addReason(r,'existing client — same company');
     }
-    const exDomain = ex.email_domain || emailDomain(ex.email);
-    if(candDomain && exDomain && candDomain===exDomain && !FREE_EMAIL_DOMAINS.has(candDomain)) reasons.push('same email domain');
-    if(candidate.contact_person && ex.contact_person && contactMatch(candidate.contact_person, ex.contact_person)) reasons.push('same contact person');
-    if(reasons.length) matches.push({lead: ex, reasons});
   }
+
+  const candDomain = candidate.email_domain || emailDomain(candidate.email);
+  if(candDomain && !FREE_EMAIL_DOMAINS.has(candDomain) && idx.byDomain.has(candDomain)){
+    for(const r of idx.byDomain.get(candDomain)){
+      if(r.status==='Won' && !matchedViaEmail.has(r)) addReason(r,'existing client — same company');
+    }
+  }
+
+  const matches = [...found.entries()].map(([lead,reasonSet])=>({lead, reasons:[...reasonSet]}));
   matches.sort((a,b)=> scoreReasons(b.reasons)-scoreReasons(a.reasons));
   return matches;
 }
@@ -856,6 +927,7 @@ function renderLeadsView(){
       <option value="">Any follow-up</option>
       <option value="due" ${state.filters.due==='due'?'selected':''}>Due within 7 days</option>
     </select>
+    <button class="btn btn-ghost btn-sm" id="exportLeadsCsv" title="Export what's currently shown (this sheet, filters, and search all apply)">Export CSV</button>
   </div>
   <div id="leadsGridArea">${renderLeadsGridArea()}</div>
   <div class="sheet-tabs reveal">
@@ -885,6 +957,7 @@ function renderLeadsGridArea(){
       ${groups.map(g=>`<option value="${escHtml(g)}">${escHtml(groupLabel(g))}</option>`).join('')}
       <option value="__new__">+ New sheet…</option>
     </select>
+    <button class="btn btn-ghost btn-sm" id="bulkExport">Export CSV</button>
     <button class="btn btn-danger-ghost btn-sm" id="bulkDelete">Delete</button>
     <button class="btn btn-ghost btn-sm" id="bulkClear">Clear</button>
   </div>` : ''}
@@ -928,10 +1001,31 @@ function refreshLeadsGridArea(){
   wireLeadsGridArea();
 }
 
+const LEAD_EXPORT_COLUMNS = [
+  {label:'Company', get:l=>l.company_name},
+  {label:'Contact', get:l=>l.contact_person},
+  {label:'Email', get:l=>l.email},
+  {label:'Status', get:l=>l.status},
+  {label:'Sheet', get:l=>groupLabel(l.source_list||'')},
+  {label:'Date added', get:l=>l.date_added},
+  {label:'Last contacted', get:l=>l.last_contacted},
+  {label:'Next follow-up', get:l=>l.next_follow_up},
+];
+function exportLeadsToCSV(rows, labelForFilename){
+  if(!rows.length){ toast('Nothing to export.'); return; }
+  const csv = toCSV(LEAD_EXPORT_COLUMNS, rows);
+  downloadCSV(`reach-leads-${safeFileSlug(labelForFilename)}-${todayISO()}.csv`, csv);
+  toast(`Exported ${rows.length} lead${rows.length===1?'':'s'}.`);
+}
+
 function wireLeadsView(){
   $('#searchInput').addEventListener('input', debounce(e=>{ state.filters.q = e.target.value; refreshLeadsGridArea(); },200));
   $('#statusFilter').addEventListener('change', e=>{ state.filters.status = e.target.value; refreshLeadsGridArea(); });
   $('#dueFilter').addEventListener('change', e=>{ state.filters.due = e.target.value; refreshLeadsGridArea(); });
+  $('#exportLeadsCsv').addEventListener('click', ()=>{
+    const label = state.activeGroup===null ? 'all-leads' : groupLabel(state.activeGroup);
+    exportLeadsToCSV(filteredSortedLeads(), label);
+  });
 
   $$('.sheet-tab[data-group]').forEach(tab=> {
     tab.addEventListener('click', ()=>{
@@ -1016,6 +1110,10 @@ function wireLeadsGridArea(){
     refreshLeadsGridArea();
   }));
   $('#bulkClear')?.addEventListener('click', ()=>{ state.selectedIds.clear(); refreshLeadsGridArea(); });
+  $('#bulkExport')?.addEventListener('click', ()=>{
+    const rows = state.leads.filter(l=>state.selectedIds.has(l.id));
+    exportLeadsToCSV(rows, 'selected');
+  });
   $('#bulkDelete')?.addEventListener('click', async ()=>{
     const ids = [...state.selectedIds];
     if(!confirm(`Delete ${ids.length} lead${ids.length===1?'':'s'}? This can't be undone.`)) return;
@@ -1270,7 +1368,8 @@ function renderCampaignsView(){
   return `
   <div class="toolbar reveal">
     <div style="color:var(--text-3);font-size:.85rem">${rows.length} campaign${rows.length===1?'':'s'} · ${totalMails.toLocaleString()} emails logged</div>
-    <button class="btn btn-primary btn-sm" id="addCampaignRow" style="margin-left:auto">+ Add campaign</button>
+    <button class="btn btn-ghost btn-sm" id="exportCampaignsCsv" style="margin-left:auto">Export CSV</button>
+    <button class="btn btn-primary btn-sm" id="addCampaignRow">+ Add campaign</button>
   </div>
   <div class="sheet-shell reveal">
     <div class="sheet-scroll">
@@ -1301,7 +1400,22 @@ function renderCampaignsView(){
   </div>`;
 }
 
+const CAMPAIGN_EXPORT_COLUMNS = [
+  {label:'Dataset / campaign', get:c=>c.name},
+  {label:'Date', get:c=>c.date},
+  {label:'Number of mails', get:c=>c.mail_count},
+  {label:'Status', get:c=>c.status},
+  {label:'Response / notes', get:c=>c.response},
+];
+
 function wireCampaignsView(){
+  $('#exportCampaignsCsv')?.addEventListener('click', ()=>{
+    if(!state.campaigns.length){ toast('Nothing to export.'); return; }
+    const rows = state.campaigns.slice().sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+    const csv = toCSV(CAMPAIGN_EXPORT_COLUMNS, rows);
+    downloadCSV(`reach-campaigns-${todayISO()}.csv`, csv);
+    toast(`Exported ${rows.length} campaign${rows.length===1?'':'s'}.`);
+  });
   const saveCell = async (el)=>{
     const tr = el.closest('tr'); if(!tr) return;
     const id = tr.dataset.id;
@@ -1417,13 +1531,14 @@ async function openLeadDetail(id){
   $('#btnLogToday').addEventListener('click', ()=>{ $('#f_lastcontacted').value = todayISO(); });
 
   if(isNew){
+    const dupIndex = buildDedupIndex(state.leads);
     const checkDup = debounce(()=>{
       const company = $('#f_company').value.trim();
       const email = $('#f_email').value.trim();
       const contact = $('#f_contact').value.trim();
       if(!company && !email && !contact){ $('#dupWarning').innerHTML=''; return; }
       const candidate = { company_name: company, company_name_clean: cleanCompany(company), email, email_domain: emailDomain(email), contact_person: contact };
-      const matches = findMatches(candidate, state.leads);
+      const matches = findMatches(candidate, dupIndex);
       if(matches.length){
         const top = matches[0];
         $('#dupWarning').innerHTML = `<div class="warn-banner"><b>Possible duplicate</b> — ${top.reasons.join(', ')}. Matches "${escHtml(leadDisplayName(top.lead))}" (${top.lead.status}).</div>`;
@@ -1589,20 +1704,35 @@ function mapNextFile(){
   });
 }
 
-function buildPreview(){
+function showImportProgress(done, total){
+  const pct = total ? Math.round(done/total*100) : 0;
+  const html = `
+    <div class="modal-head"><h2>Checking for duplicates…</h2></div>
+    <p style="color:var(--text-2)">Comparing ${total} row${total===1?'':'s'} against your outreach history${total>300?' — large imports take a few seconds':''}.</p>
+    <div style="height:8px;background:var(--paper-deep);border-radius:99px;overflow:hidden;margin-top:1rem">
+      <div style="height:100%;width:${pct}%;background:var(--accent-deep);border-radius:99px;transition:width .15s ease"></div>
+    </div>
+    <p class="mono" style="margin-top:.6rem;color:var(--text-3)">${done} / ${total}</p>
+  `;
+  openModal(html);
+}
+
+async function buildPreview(){
   importPreviewRows = [];
-  const acceptedPool = []; // rows accepted as new within this import, participate in later matching
+  const dedupIdx = buildDedupIndex(state.leads);
+
+  const allRows = [];
   for(const item of importQueue){
     const m = item.mapping;
-    const idx = h => item.headers.indexOf(h);
+    const colIdx = h => item.headers.indexOf(h);
     item.dataRows.forEach(r=>{
-      const company = m.company ? String(r[idx(m.company)]||'').trim() : '';
-      const contact = m.contact ? String(r[idx(m.contact)]||'').trim() : '';
-      const email = m.email ? String(r[idx(m.email)]||'').trim() : '';
+      const company = m.company ? String(r[colIdx(m.company)]||'').trim() : '';
+      const contact = m.contact ? String(r[colIdx(m.contact)]||'').trim() : '';
+      const email = m.email ? String(r[colIdx(m.email)]||'').trim() : '';
       if(!company && !contact && !email) return;
-      const notes = m.notes ? String(r[idx(m.notes)]||'').trim() : '';
-      const rawStatus = m.status ? String(r[idx(m.status)]||'').trim() : '';
-      const candidate = {
+      const notes = m.notes ? String(r[colIdx(m.notes)]||'').trim() : '';
+      const rawStatus = m.status ? String(r[colIdx(m.status)]||'').trim() : '';
+      allRows.push({
         company_name: company,
         company_name_clean: cleanCompany(company),
         contact_person: contact,
@@ -1611,13 +1741,23 @@ function buildPreview(){
         status: normalizeStatus(rawStatus),
         source_list: item.source_list,
         _importNote: notes,
-      };
-      const pool = state.leads.concat(acceptedPool);
-      const matches = findMatches(candidate, pool);
-      const previewRow = { candidate, matches, action: matches.length ? 'skip' : 'add', mergeTargetId: matches.length ? matches[0].lead.id : null };
-      importPreviewRows.push(previewRow);
-      if(!matches.length) acceptedPool.push(candidate);
+      });
     });
+  }
+
+  // The indexed matcher below is fast — benchmarked at ~130ms for 1800+ rows
+  // in-browser, not assumed — so this runs to completion in one synchronous
+  // pass rather than yielding mid-loop with setTimeout. That matters: a
+  // backgrounded tab throttles queued timers hard (sometimes for many
+  // seconds per timer), which would turn "yield to stay responsive" into
+  // "the import silently stalls if you switch tabs while it runs" — worse
+  // than just finishing fast without ever giving up the thread.
+  showImportProgress(0, allRows.length);
+  for(let i=0;i<allRows.length;i++){
+    const candidate = allRows[i];
+    const matches = findMatches(candidate, dedupIdx);
+    importPreviewRows.push({ candidate, matches, action: matches.length ? 'skip' : 'add', mergeTargetId: matches.length ? matches[0].lead.id : null });
+    if(!matches.length) indexAdd(dedupIdx, candidate);
   }
   renderPreview();
 }
@@ -1625,7 +1765,12 @@ function buildPreview(){
 async function renderPreview(){
   const dupCount = importPreviewRows.filter(r=>r.matches.length).length;
   const newCount = importPreviewRows.length - dupCount;
-  const matchedIds = [...new Set(importPreviewRows.flatMap(r=>r.matches.map(m=>m.lead.id)))];
+  // Matches can point at another row earlier in this same import batch that
+  // hasn't been saved yet (no id), not just existing DB leads — filter those
+  // out here, since fetching "notes for lead id undefined" fails outright
+  // against Supabase (invalid uuid) and would otherwise abort this whole
+  // render before the preview ever appears.
+  const matchedIds = [...new Set(importPreviewRows.flatMap(r=>r.matches.map(m=>m.lead.id)).filter(Boolean))];
   let notesById = {};
   if(matchedIds.length){
     const notes = await db.fetchNotes(matchedIds);
@@ -1657,11 +1802,11 @@ async function renderPreview(){
             ${isDup ? `<span class="badge status-Warm">Possible duplicate</span><div class="prow-reasons">${best.reasons.map(rs=>`<span class="reason-chip">${rs}</span>`).join('')}</div>` : `<span class="badge status-Won">New</span>`}
           </div>
           <div>
-            ${isDup ? `<div class="prow-match">Matches <b>${escHtml(leadDisplayName(best.lead))}</b> (${best.lead.status})${lastNote?`<br>Last note: "${escHtml(lastNote.note.slice(0,80))}${lastNote.note.length>80?'…':''}"`:''}</div>
+            ${isDup ? `<div class="prow-match">Matches <b>${escHtml(leadDisplayName(best.lead))}</b>${best.lead.id?` (${best.lead.status})`:' (also new in this import)'}${lastNote?`<br>Last note: "${escHtml(lastNote.note.slice(0,80))}${lastNote.note.length>80?'…':''}"`:''}</div>
             <select data-idx="${i}" class="rowAction">
               <option value="skip" selected>Skip</option>
               <option value="add">Add as new</option>
-              <option value="merge">Merge into existing</option>
+              ${best.lead.id?'<option value="merge">Merge into existing</option>':''}
             </select>` : `<select data-idx="${i}" class="rowAction"><option value="add" selected>Add as new</option><option value="skip">Skip</option></select>`}
           </div>
         </div>`;
