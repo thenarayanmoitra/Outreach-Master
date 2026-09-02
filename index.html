@@ -62,6 +62,10 @@ h1,h2,h3{font-family:'Space Grotesk',sans-serif;font-weight:600;margin:0;letter-
 a{color:var(--accent-deep)}
 .mono{font-family:'Space Mono',monospace;text-transform:uppercase;letter-spacing:.22em;font-size:.65rem}
 .wrap{max-width:var(--maxw);margin:0 auto;padding:0 clamp(1.1rem,4vw,2.25rem)}
+/* The sheet/kanban/campaign views are working surfaces — they get the whole
+   window rather than the 1160px reading column the dashboard uses. */
+main.full, .topbar .topbar-inner.full{max-width:none}
+main.full{padding:1.1rem 0 1.1rem}
 ::selection{background:var(--accent-soft);color:var(--ink-deep)}
 
 /* ---------- topbar ---------- */
@@ -202,7 +206,7 @@ select.filter-select{
 
 /* ---------- spreadsheet-style leads grid ---------- */
 .sheet-shell{border:1px solid var(--sep-strong);border-radius:var(--radius);background:var(--surface);overflow:hidden}
-.sheet-scroll{overflow:auto;max-height:65vh}
+.sheet-scroll{overflow:auto;max-height:calc(100vh - 250px);min-height:240px}
 .sheet-table{border-collapse:collapse;width:100%;min-width:920px}
 .sheet-table th,.sheet-table td{border:1px solid var(--sep);padding:0;position:relative}
 .checkbox-head,.checkbox-cell{width:34px;min-width:34px;text-align:center;position:sticky;left:0;z-index:1;background:var(--paper-deep)}
@@ -234,17 +238,26 @@ select.filter-select{
 
 .sheet-tabs{display:flex;align-items:center;gap:2px;overflow-x:auto;margin-top:.6rem;padding:.3rem;background:var(--paper-deep);border-radius:var(--radius);scrollbar-width:thin}
 .sheet-tab{
-  display:flex;align-items:center;gap:.35rem;
-  padding:.5rem .6rem .5rem .9rem;font-size:.8rem;font-weight:600;color:var(--text-2);white-space:nowrap;border-radius:3px 3px 0 0;
-  border-bottom:2px solid transparent;cursor:pointer;transition:background .12s var(--ease),color .12s var(--ease);
+  display:flex;align-items:center;gap:.3rem;
+  padding:.5rem .55rem .5rem .85rem;font-size:.8rem;font-weight:600;color:var(--text-2);white-space:nowrap;border-radius:3px 3px 0 0;
+  border-bottom:2px solid transparent;cursor:pointer;position:relative;
+  transition:background .12s var(--ease),color .12s var(--ease);
 }
-.sheet-tab:hover{color:var(--ink-deep);background:rgba(255,255,255,.5)}
+.sheet-tab:hover{color:var(--ink-deep);background:rgba(255,255,255,.55)}
 .sheet-tab.active{background:var(--surface);color:var(--ink-deep);border-bottom-color:var(--accent-deep)}
-.sheet-tab-close{
-  opacity:0;width:16px;height:16px;border-radius:50%;font-size:.75rem;line-height:1;color:var(--text-3);
-  display:flex;align-items:center;justify-content:center;transition:opacity .12s var(--ease),background .12s var(--ease),color .12s var(--ease);
+.sheet-tab.dragging{opacity:.35}
+.sheet-tab.drop-before::before,.sheet-tab.drop-after::after{
+  content:'';position:absolute;top:4px;bottom:4px;width:2px;background:var(--accent-deep);border-radius:2px;
 }
-.sheet-tab:hover .sheet-tab-close{opacity:1}
+.sheet-tab.drop-before::before{left:-2px}
+.sheet-tab.drop-after::after{right:-2px}
+.sheet-tab-btn{
+  opacity:0;width:17px;height:17px;border-radius:50%;font-size:.72rem;line-height:1;color:var(--text-3);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  transition:opacity .12s var(--ease),background .12s var(--ease),color .12s var(--ease);
+}
+.sheet-tab:hover .sheet-tab-btn,.sheet-tab.active .sheet-tab-btn{opacity:.75}
+.sheet-tab-btn:hover{opacity:1 !important;background:var(--parchment);color:var(--ink-deep)}
 .sheet-tab-close:hover{background:var(--red);color:#fff}
 .sheet-tab-add{padding:.5rem .8rem;color:var(--text-3);font-weight:700;font-size:1rem;border-radius:3px}
 .sheet-tab-add:hover{color:var(--ink-deep);background:rgba(255,255,255,.5)}
@@ -354,10 +367,19 @@ select.filter-select{
 }
 @keyframes toastIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 
-.reveal{opacity:0;transform:translateY(16px);transition:opacity .5s var(--ease),transform .5s var(--ease)}
-.reveal.in{opacity:1;transform:translateY(0)}
+/* Entrance is a self-playing CSS animation rather than JS adding an .in class.
+   The JS version left elements stuck at opacity:0 whenever rAF/timers were
+   throttled (a backgrounded tab mid-render), i.e. invisible content with no
+   way back. animation-fill-mode:both means the end state sticks even if the
+   animation never gets to run. */
+.reveal{animation:revealIn .45s var(--ease) both}
+.reveal.in{opacity:1;transform:none}
+@keyframes revealIn{
+  from{opacity:0;transform:translateY(14px)}
+  to{opacity:1;transform:translateY(0)}
+}
 @media (prefers-reduced-motion:reduce){
-  .reveal{opacity:1;transform:none;transition:none}
+  .reveal{animation:none;opacity:1;transform:none}
   .funnel-bar-fill,.chart-bar{transition:none}
 }
 @media (max-width:640px){
@@ -518,23 +540,26 @@ function leadDisplayName(l){ return (l.company_name && l.company_name.trim()) ||
 
 function scoreReasons(reasons){
   let s=0;
-  if(reasons.some(r=>r.startsWith('existing client'))) s+=100;
-  if(reasons.includes('already said no')) s+=90;
-  if(reasons.includes('exact email match')) s+=50;
+  if(reasons.includes('same email')) s+=100;
+  if(reasons.includes('same company')) s+=60;
+  if(reasons.includes('same email domain')) s+=40;
+  if(reasons.includes('same contact name')) s+=30;
   return s;
 }
 
 /* Dedup engine, indexed.
-   This isn't general "possible duplicate" flagging — plain re-appearances of
-   a company or contact name across sheets are fine and expected here. It
-   flags exactly three things, by design: the literal same email address
-   showing up again, anyone whose email or company matches an existing WON
-   lead (an actual client, or a coworker of one), and the exact email of
-   someone marked Dead (already said no). Nothing else — no fuzzy name
-   matching — trips a flag.
-   Indexed by email/domain/company rather than a flat n^2 scan so a several-
-   hundred-row import stays fast: each row only compares against the (small)
-   bucket of existing leads it could plausibly match. */
+   Only leads you've actually engaged with are protected — the ones you've
+   marked Won, Dead, Warm or In Progress. Everything else (the Not Now bulk
+   of imported prospects) is ignored entirely, so the same company or person
+   reappearing across prospect sheets is free to import. Against that
+   protected set the match is deliberately wide: name, company, or email.
+   Because only engaged leads get indexed, the index stays small and the
+   whole import stays fast even at several thousand rows. */
+const PROTECTED_STATUSES = new Set(['Won','Dead','Warm','In Progress']);
+const NAME_STOPWORDS = new Set(['mr','ms','mrs','dr','and','the']);
+function nameTokens(s){
+  return (s||'').toLowerCase().split(/[^a-z]+/).filter(t=> t.length>=3 && !NAME_STOPWORDS.has(t));
+}
 function createDedupIndex(){
   return {
     byEmail: new Map(),
@@ -542,6 +567,7 @@ function createDedupIndex(){
     byCleanExact: new Map(),
     byLoose: new Map(),
     byCleanPrefix: new Map(),
+    byNameToken: new Map(),
   };
 }
 function idxPush(map, key, val){
@@ -561,10 +587,13 @@ function indexAdd(idx, record){
   }
   const loose = normLoose(record.company_name);
   idxPush(idx.byLoose, loose, record);
+  for(const t of nameTokens(record.contact_person)) idxPush(idx.byNameToken, t, record);
 }
 function buildDedupIndex(records){
   const idx = createDedupIndex();
-  for(const r of records) indexAdd(idx, r);
+  for(const r of records){
+    if(PROTECTED_STATUSES.has(r.status)) indexAdd(idx, r);
+  }
   return idx;
 }
 
@@ -579,31 +608,19 @@ function findMatches(candidate, idx){
   const candEmail = (candidate.email||'').toLowerCase().trim();
   const matchedViaEmail = new Set();
   if(candEmail && idx.byEmail.has(candEmail)){
-    for(const r of idx.byEmail.get(candEmail)){
-      matchedViaEmail.add(r);
-      if(r.status==='Won') addReason(r,'existing client');
-      else if(r.status==='Dead') addReason(r,'already said no');
-      else addReason(r,'exact email match');
-    }
+    for(const r of idx.byEmail.get(candEmail)){ addReason(r,'same email'); matchedViaEmail.add(r); }
   }
 
-  // Client protection is company-wide (won't email a coworker of a client
-  // either), so this checks exact/near company name and shared domain — but
-  // only counts it when the matched lead is actually a Won client. A Dead
-  // lead's company isn't otherwise off-limits — just that one person.
-  // Skip leads already flagged via the exact-email check above so a client
-  // whose email also happens to share their own domain/company doesn't get
-  // both "existing client" and "existing client — same company" chips.
   const candClean = candidate.company_name_clean || cleanCompany(candidate.company_name);
   const candLoose = normLoose(candidate.company_name);
   const exactCompany = new Set();
-  if(candClean && idx.byCleanExact.has(candClean)) for(const r of idx.byCleanExact.get(candClean)){ if(r.status==='Won' && !matchedViaEmail.has(r)){ addReason(r,'existing client — same company'); exactCompany.add(r); } }
-  if(candLoose && idx.byLoose.has(candLoose)) for(const r of idx.byLoose.get(candLoose)){ if(r.status==='Won' && !matchedViaEmail.has(r)){ addReason(r,'existing client — same company'); exactCompany.add(r); } }
+  if(candClean && idx.byCleanExact.has(candClean)) for(const r of idx.byCleanExact.get(candClean)){ addReason(r,'same company'); exactCompany.add(r); }
+  if(candLoose && idx.byLoose.has(candLoose)) for(const r of idx.byLoose.get(candLoose)){ addReason(r,'same company'); exactCompany.add(r); }
 
   if(candClean && candClean.length>=3){
     const bucket = idx.byCleanPrefix.get(candClean.slice(0,2));
     if(bucket) for(const r of bucket){
-      if(r.status!=='Won' || exactCompany.has(r) || matchedViaEmail.has(r)) continue;
+      if(exactCompany.has(r)) continue;
       const exClean = r.company_name_clean || cleanCompany(r.company_name);
       if(!exClean || exClean.length<3) continue;
       const contains = candClean.length>=4 && exClean.length>=4 && (candClean.includes(exClean) || exClean.includes(candClean));
@@ -614,15 +631,21 @@ function findMatches(candidate, idx){
       const lenDiff = Math.abs(candClean.length - exClean.length);
       const worthChecking = !contains && lenDiff <= maxLen * 0.35;
       const sim = worthChecking ? similarity(candClean, exClean) : 0;
-      if(sim >= 0.65 || contains) addReason(r,'existing client — same company');
+      if(sim >= 0.65 || contains) addReason(r,'same company');
     }
   }
 
+  // An exact email match already shares its own domain by definition — don't
+  // report that twice on the same lead.
   const candDomain = candidate.email_domain || emailDomain(candidate.email);
   if(candDomain && !FREE_EMAIL_DOMAINS.has(candDomain) && idx.byDomain.has(candDomain)){
     for(const r of idx.byDomain.get(candDomain)){
-      if(r.status==='Won' && !matchedViaEmail.has(r)) addReason(r,'existing client — same company');
+      if(!matchedViaEmail.has(r)) addReason(r,'same email domain');
     }
+  }
+
+  for(const t of nameTokens(candidate.contact_person)){
+    if(idx.byNameToken.has(t)) for(const r of idx.byNameToken.get(t)) addReason(r,'same contact name');
   }
 
   const matches = [...found.entries()].map(([lead,reasonSet])=>({lead, reasons:[...reasonSet]}));
@@ -657,6 +680,12 @@ const localDb = {
     const all = lsGet(LS_LEADS);
     const idx = all.findIndex(l=>l.id===id);
     if(idx>-1){ all[idx] = {...all[idx], ...fields, updated_at: new Date().toISOString()}; lsSet(LS_LEADS, all); return all[idx]; }
+  },
+  async updateLeadsBulk(ids, fields){
+    const all = lsGet(LS_LEADS);
+    const set = new Set(ids);
+    const now = new Date().toISOString();
+    lsSet(LS_LEADS, all.map(l=> set.has(l.id) ? {...l, ...fields, updated_at: now} : l));
   },
   async deleteLeads(ids){
     lsSet(LS_LEADS, lsGet(LS_LEADS).filter(l=>!ids.includes(l.id)));
@@ -711,6 +740,17 @@ const supaDb = {
     if(error) throw error;
     return data;
   },
+  // One request per chunk instead of one per lead — renaming or moving a
+  // sheet with hundreds of leads was doing hundreds of sequential round
+  // trips, which reads as "nothing is happening" for tens of seconds.
+  async updateLeadsBulk(ids, fields){
+    const payload = {...fields, updated_at:new Date().toISOString()};
+    for(let i=0;i<ids.length;i+=200){
+      const chunk = ids.slice(i,i+200);
+      const { error } = await sbClient.from('leads').update(payload).in('id', chunk);
+      if(error) throw error;
+    }
+  },
   async deleteLeads(ids){
     const { error } = await sbClient.from('leads').delete().in('id', ids);
     if(error) throw error;
@@ -752,6 +792,7 @@ const state = {
   sort: { key:'created_at', dir:'desc' },
   columnMaps: JSON.parse(localStorage.getItem('oct_column_maps_v1')||'{}'),
   customGroups: JSON.parse(localStorage.getItem('oct_custom_groups_v1')||'[]'),
+  sheetOrder: JSON.parse(localStorage.getItem('oct_sheet_order_v1')||'[]'),
   activeGroup: JSON.parse(localStorage.getItem('oct_active_group_v1')||'null'),
   selectedIds: new Set(),
 };
@@ -769,14 +810,35 @@ function setActiveGroup(g){
   localStorage.setItem('oct_active_group_v1', JSON.stringify(g));
 }
 function saveCustomGroups(){ localStorage.setItem('oct_custom_groups_v1', JSON.stringify(state.customGroups)); }
+function saveSheetOrder(){ localStorage.setItem('oct_sheet_order_v1', JSON.stringify(state.sheetOrder)); }
+/* Tab order is whatever you dragged it into (kept in sheetOrder). Sheets that
+   haven't been dragged yet fall in after the ordered ones, alphabetically,
+   with Unlabeled pinned last. */
 function allGroups(){
   const fromLeads = new Set(state.leads.map(l=> l.source_list || ''));
   const set = new Set([...fromLeads, ...state.customGroups]);
-  return [...set].sort((a,b)=>{
+  const groups = [...set];
+  const orderOf = g => {
+    const i = state.sheetOrder.indexOf(g);
+    return i===-1 ? Infinity : i;
+  };
+  return groups.sort((a,b)=>{
     if(a==='') return 1;
     if(b==='') return -1;
+    const oa = orderOf(a), ob = orderOf(b);
+    if(oa!==ob) return oa-ob;
     return a.localeCompare(b);
   });
+}
+function moveSheet(dragged, target, placeAfter){
+  const groups = allGroups().filter(g=>g!=='');
+  const order = groups.filter(g=>g!==dragged);
+  let idx = order.indexOf(target);
+  if(idx===-1) return;
+  if(placeAfter) idx++;
+  order.splice(idx, 0, dragged);
+  state.sheetOrder = order;
+  saveSheetOrder();
 }
 function groupLabel(g){ return g===''? 'Unlabeled' : g; }
 
@@ -808,13 +870,13 @@ function setView(v){
 
 function render(){
   const main = $('#mainView');
+  // Working surfaces (sheet, board, campaign log) take the full window;
+  // the dashboard stays in the narrower reading column.
+  main.classList.toggle('full', state.view!=='dashboard');
   if(state.view==='dashboard') main.innerHTML = renderDashboard();
   else if(state.view==='leads') { main.innerHTML = renderLeadsView(); wireLeadsView(); }
   else if(state.view==='kanban') { main.innerHTML = renderKanban(); wireKanban(); }
   else if(state.view==='campaigns') { main.innerHTML = renderCampaignsView(); wireCampaignsView(); }
-  requestAnimationFrame(()=>{
-    $$('.reveal').forEach((el,i)=> setTimeout(()=>el.classList.add('in'), i*40));
-  });
 }
 
 /* ============================= DASHBOARD ============================= */
@@ -914,6 +976,17 @@ function filteredSortedLeads(){
    Rebuilding the whole view on every keystroke used to yank focus out of the
    search box after each debounced update; this keeps that box (and its
    cursor position) completely untouched while you type. */
+function leadCountText(){
+  const shown = filteredSortedLeads().length;
+  const scope = state.activeGroup===null ? state.leads.length
+    : state.leads.filter(l=>(l.source_list||'')===state.activeGroup).length;
+  return shown===scope ? `${shown} lead${shown===1?'':'s'}` : `${shown} of ${scope} shown`;
+}
+function updateLeadCountLabel(){
+  const el = $('#leadCountLabel');
+  if(el) el.textContent = leadCountText();
+}
+
 function renderLeadsView(){
   const groups = allGroups();
   return `
@@ -928,11 +1001,12 @@ function renderLeadsView(){
       <option value="due" ${state.filters.due==='due'?'selected':''}>Due within 7 days</option>
     </select>
     <button class="btn btn-ghost btn-sm" id="exportLeadsCsv" title="Export what's currently shown (this sheet, filters, and search all apply)">Export CSV</button>
+    <span id="leadCountLabel" style="color:var(--text-3);font-size:.8rem;white-space:nowrap">${leadCountText()}</span>
   </div>
   <div id="leadsGridArea">${renderLeadsGridArea()}</div>
-  <div class="sheet-tabs reveal">
+  <div class="sheet-tabs reveal" id="sheetTabs">
     <div class="sheet-tab ${state.activeGroup===null?'active':''}" data-group="__all__">All leads</div>
-    ${groups.map(g=>`<div class="sheet-tab ${state.activeGroup===g?'active':''}" data-group="${escHtml(g)}" title="Double-click to rename">${escHtml(groupLabel(g))}${g!==''?`<button class="sheet-tab-close" data-delgroup="${escHtml(g)}" title="Delete sheet">&times;</button>`:''}</div>`).join('')}
+    ${groups.map(g=>`<div class="sheet-tab ${state.activeGroup===g?'active':''}" data-group="${escHtml(g)}" ${g!==''?'draggable="true"':''} title="${g!==''?'Drag to reorder · double-click to rename':'Leads with no sheet'}">${escHtml(groupLabel(g))}${g!==''?`<button class="sheet-tab-btn" data-renamegroup="${escHtml(g)}" title="Rename sheet">✎</button><button class="sheet-tab-btn sheet-tab-close" data-delgroup="${escHtml(g)}" title="Delete sheet">&times;</button>`:''}</div>`).join('')}
     <button class="sheet-tab-add" id="addSheetTab" title="New sheet">+</button>
   </div>`;
 }
@@ -1019,28 +1093,78 @@ function exportLeadsToCSV(rows, labelForFilename){
 }
 
 function wireLeadsView(){
-  $('#searchInput').addEventListener('input', debounce(e=>{ state.filters.q = e.target.value; refreshLeadsGridArea(); },200));
-  $('#statusFilter').addEventListener('change', e=>{ state.filters.status = e.target.value; refreshLeadsGridArea(); });
-  $('#dueFilter').addEventListener('change', e=>{ state.filters.due = e.target.value; refreshLeadsGridArea(); });
+  $('#searchInput').addEventListener('input', debounce(e=>{ state.filters.q = e.target.value; refreshLeadsGridArea(); updateLeadCountLabel(); },200));
+  $('#statusFilter').addEventListener('change', e=>{ state.filters.status = e.target.value; refreshLeadsGridArea(); updateLeadCountLabel(); });
+  $('#dueFilter').addEventListener('change', e=>{ state.filters.due = e.target.value; refreshLeadsGridArea(); updateLeadCountLabel(); });
   $('#exportLeadsCsv').addEventListener('click', ()=>{
     const label = state.activeGroup===null ? 'all-leads' : groupLabel(state.activeGroup);
     exportLeadsToCSV(filteredSortedLeads(), label);
   });
 
-  $$('.sheet-tab[data-group]').forEach(tab=> {
-    tab.addEventListener('click', ()=>{
-      const g = tab.dataset.group;
-      setActiveGroup(g==='__all__' ? null : g);
-      render();
+  /* Switching tabs deliberately does NOT re-render the whole view. It used to,
+     which quietly broke double-click-to-rename: the first click replaced the
+     tab element, so the second click landed on a different node and the
+     dblclick event never fired at all. Swapping the active class in place and
+     refreshing only the grid keeps the element identity intact. */
+  const switchGroup = (g)=>{
+    setActiveGroup(g==='__all__' ? null : g);
+    $$('#sheetTabs .sheet-tab').forEach(t=>{
+      const tg = t.dataset.group;
+      const isActive = (tg==='__all__' && state.activeGroup===null) || (tg!=='__all__' && tg===state.activeGroup);
+      t.classList.toggle('active', isActive);
     });
+    refreshLeadsGridArea();
+    updateLeadCountLabel();
+  };
+  $$('.sheet-tab[data-group]').forEach(tab=> {
+    tab.addEventListener('click', ()=> switchGroup(tab.dataset.group));
     if(tab.dataset.group!=='__all__'){
       tab.addEventListener('dblclick', (e)=>{ e.stopPropagation(); renameGroup(tab.dataset.group); });
     }
   });
+  $$('.sheet-tab-btn[data-renamegroup]').forEach(btn=> btn.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    renameGroup(btn.dataset.renamegroup);
+  }));
   $$('.sheet-tab-close[data-delgroup]').forEach(btn=> btn.addEventListener('click', (e)=>{
     e.stopPropagation();
     deleteGroupFlow(btn.dataset.delgroup);
   }));
+
+  // Drag a tab onto another to reorder, Google Sheets style.
+  let draggedGroup = null;
+  const clearDropMarks = ()=> $$('#sheetTabs .sheet-tab').forEach(t=>t.classList.remove('drop-before','drop-after'));
+  $$('.sheet-tab[draggable="true"]').forEach(tab=>{
+    tab.addEventListener('dragstart', e=>{
+      draggedGroup = tab.dataset.group;
+      tab.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', draggedGroup);
+    });
+    tab.addEventListener('dragend', ()=>{ tab.classList.remove('dragging'); clearDropMarks(); draggedGroup = null; });
+    tab.addEventListener('dragover', e=>{
+      if(!draggedGroup || tab.dataset.group===draggedGroup || tab.dataset.group==='') return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const rect = tab.getBoundingClientRect();
+      const after = (e.clientX - rect.left) > rect.width/2;
+      clearDropMarks();
+      tab.classList.add(after ? 'drop-after' : 'drop-before');
+    });
+    tab.addEventListener('dragleave', ()=> tab.classList.remove('drop-before','drop-after'));
+    tab.addEventListener('drop', e=>{
+      e.preventDefault();
+      e.stopPropagation();
+      const target = tab.dataset.group;
+      if(!draggedGroup || target===draggedGroup || target==='') return;
+      const rect = tab.getBoundingClientRect();
+      const after = (e.clientX - rect.left) > rect.width/2;
+      moveSheet(draggedGroup, target, after);
+      clearDropMarks();
+      draggedGroup = null;
+      render();
+    });
+  });
   const addBtn = $('#addSheetTab');
   if(addBtn) addBtn.addEventListener('click', ()=>{
     const name = prompt('Name this sheet (e.g. a campaign or list name):');
@@ -1128,12 +1252,11 @@ function wireLeadsGridArea(){
   $('#bulkStatus')?.addEventListener('change', async (e)=>{
     const val = e.target.value; if(!val) return;
     const ids = [...state.selectedIds];
-    for(const id of ids){
-      const lead = state.leads.find(l=>l.id===id); if(!lead) continue;
-      lead.status = val;
-      try{ await db.updateLead(id, {status: val}); }catch(err){ console.error(err); }
-    }
-    toast(`Set ${ids.length} lead${ids.length===1?'':'s'} to ${val}.`);
+    try{
+      await db.updateLeadsBulk(ids, {status: val});
+      ids.forEach(id=>{ const lead = state.leads.find(l=>l.id===id); if(lead) lead.status = val; });
+      toast(`Set ${ids.length} lead${ids.length===1?'':'s'} to ${val}.`);
+    }catch(err){ console.error(err); toast('Could not update those leads.'); }
     render();
   });
   $('#bulkMove')?.addEventListener('change', async (e)=>{
@@ -1145,12 +1268,11 @@ function wireLeadsGridArea(){
       if(!state.customGroups.includes(val)){ state.customGroups.push(val); saveCustomGroups(); }
     }
     const ids = [...state.selectedIds];
-    for(const id of ids){
-      const lead = state.leads.find(l=>l.id===id); if(!lead) continue;
-      lead.source_list = val;
-      try{ await db.updateLead(id, {source_list: val}); }catch(err){ console.error(err); }
-    }
-    toast(`Moved ${ids.length} lead${ids.length===1?'':'s'} to ${groupLabel(val)}.`);
+    try{
+      await db.updateLeadsBulk(ids, {source_list: val});
+      ids.forEach(id=>{ const lead = state.leads.find(l=>l.id===id); if(lead) lead.source_list = val; });
+      toast(`Moved ${ids.length} lead${ids.length===1?'':'s'} to ${groupLabel(val)}.`);
+    }catch(err){ console.error(err); toast('Could not move those leads.'); }
     render();
   });
 }
@@ -1164,17 +1286,25 @@ async function renameGroup(oldName){
   if(collides && !confirm(`A sheet named "${trimmed}" already exists. Merge "${oldName}" into it?`)) return;
   const idx = state.customGroups.indexOf(oldName);
   if(idx>-1){ state.customGroups[idx] = trimmed; saveCustomGroups(); }
+  const orderIdx = state.sheetOrder.indexOf(oldName);
+  if(orderIdx>-1){ state.sheetOrder[orderIdx] = trimmed; saveSheetOrder(); }
   const affected = state.leads.filter(l=>(l.source_list||'')===oldName);
-  for(const l of affected){
-    l.source_list = trimmed;
-    try{ await db.updateLead(l.id, {source_list: trimmed}); }catch(e){ console.error(e); }
+  try{
+    if(affected.length) await db.updateLeadsBulk(affected.map(l=>l.id), {source_list: trimmed});
+    affected.forEach(l=> l.source_list = trimmed);
+  }catch(e){
+    console.error(e);
+    toast('Rename failed — check console.');
+    return;
   }
   if(state.activeGroup===oldName) setActiveGroup(trimmed);
-  toast(`Renamed to "${trimmed}".`);
+  toast(`Renamed to "${trimmed}" (${affected.length} lead${affected.length===1?'':'s'}).`);
   render();
 }
 
 function removeGroupTab(name){
+  const oi = state.sheetOrder.indexOf(name);
+  if(oi>-1){ state.sheetOrder.splice(oi,1); saveSheetOrder(); }
   const idx = state.customGroups.indexOf(name);
   if(idx>-1){ state.customGroups.splice(idx,1); saveCustomGroups(); }
   if(state.activeGroup===name) setActiveGroup(null);
@@ -1198,12 +1328,12 @@ function deleteGroupFlow(name){
   $('#closeDelSheet').addEventListener('click', closeModal);
   $('#cancelDelSheet').addEventListener('click', closeModal);
   $('#moveThenDelete')?.addEventListener('click', async ()=>{
-    for(const l of affected){
-      l.source_list = '';
-      try{ await db.updateLead(l.id, {source_list:''}); }catch(e){ console.error(e); }
-    }
-    removeGroupTab(name);
-    toast(`Moved ${count} lead${count===1?'':'s'} to Unlabeled.`);
+    try{
+      await db.updateLeadsBulk(affected.map(l=>l.id), {source_list:''});
+      affected.forEach(l=> l.source_list = '');
+      removeGroupTab(name);
+      toast(`Moved ${count} lead${count===1?'':'s'} to Unlabeled.`);
+    }catch(e){ console.error(e); toast('Could not move those leads.'); }
     closeModal();
     render();
   });
@@ -1757,7 +1887,10 @@ async function buildPreview(){
     const candidate = allRows[i];
     const matches = findMatches(candidate, dedupIdx);
     importPreviewRows.push({ candidate, matches, action: matches.length ? 'skip' : 'add', mergeTargetId: matches.length ? matches[0].lead.id : null });
-    if(!matches.length) indexAdd(dedupIdx, candidate);
+    // Rows in this batch only join the protected set if the sheet itself
+    // marked them Won/Dead/Warm/In Progress. Plain prospects (Not Now) stay
+    // unprotected, so repeats within one import are allowed through.
+    if(!matches.length && PROTECTED_STATUSES.has(candidate.status)) indexAdd(dedupIdx, candidate);
   }
   renderPreview();
 }
