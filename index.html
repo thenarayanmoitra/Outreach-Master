@@ -111,6 +111,10 @@ main.full{padding:1.1rem 0 1.1rem}
 .btn-danger-ghost:hover{background:var(--red);color:#fff}
 
 /* ---------- setup banner ---------- */
+#integrityBanner{
+  background:var(--red);color:#fff;padding:.85rem 0;font-size:.88rem;position:sticky;top:0;z-index:60;
+}
+#integrityBanner b{font-family:'Space Grotesk',sans-serif}
 #setupBanner{
   background:var(--ink-deep);color:var(--paper);padding:2.5rem 0;
 }
@@ -206,7 +210,12 @@ select.filter-select{
 
 /* ---------- spreadsheet-style leads grid ---------- */
 .sheet-shell{border:1px solid var(--sep-strong);border-radius:var(--radius);background:var(--surface);overflow:hidden}
-.sheet-scroll{overflow:auto;max-height:calc(100vh - 250px);min-height:240px}
+.sheet-scroll{overflow:auto;max-height:calc(100vh - 232px);min-height:240px;overscroll-behavior:contain}
+.load-more{
+  display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;
+  margin-top:.55rem;padding:.55rem .8rem;background:var(--paper-deep);
+  border-radius:var(--radius);font-size:.82rem;color:var(--text-2);
+}
 .sheet-table{border-collapse:collapse;width:100%;min-width:920px}
 .sheet-table th,.sheet-table td{border:1px solid var(--sep);padding:0;position:relative}
 .checkbox-head,.checkbox-cell{width:34px;min-width:34px;text-align:center;position:sticky;left:0;z-index:1;background:var(--paper-deep)}
@@ -389,6 +398,8 @@ select.filter-select{
 </style>
 </head>
 <body>
+
+<div id="integrityBanner" hidden></div>
 
 <div id="setupBanner" hidden>
   <div class="wrap">
@@ -665,6 +676,7 @@ function lsSet(key,val){ localStorage.setItem(key, JSON.stringify(val)); }
 
 const localDb = {
   async fetchLeads(){ return lsGet(LS_LEADS).sort((a,b)=> (b.created_at||'').localeCompare(a.created_at||'')); },
+  async fetchLeadCount(){ return lsGet(LS_LEADS).length; },
   async fetchNotes(leadIds){
     const all = lsGet(LS_NOTES);
     return all.filter(n=>leadIds.includes(n.lead_id)).sort((a,b)=> (b.created_at||'').localeCompare(a.created_at||''));
@@ -713,17 +725,41 @@ const localDb = {
   }
 };
 
+/* Supabase/PostgREST caps every response at 1000 rows. Without paging, a
+   plain .select() silently returns only the newest 1000 and reports no error
+   — which is exactly how four sheets became "two sheets": the rows were all
+   still in the database, but the app never fetched past the first page, so
+   the older sheets had no leads to build tabs from. Everything below pages
+   until the server returns a short page, and .in() filters are chunked so a
+   few thousand ids can't blow the URL length either. */
+const PAGE = 1000;
+const IN_CHUNK = 100;
+async function fetchAllPages(build){
+  const out = [];
+  for(let from=0;;from+=PAGE){
+    const { data, error } = await build().range(from, from+PAGE-1);
+    if(error) throw error;
+    out.push(...data);
+    if(data.length < PAGE) return out;
+  }
+}
 const supaDb = {
   async fetchLeads(){
-    const { data, error } = await sbClient.from('leads').select('*').order('created_at',{ascending:false});
+    return fetchAllPages(()=> sbClient.from('leads').select('*').order('created_at',{ascending:false}));
+  },
+  async fetchLeadCount(){
+    const { count, error } = await sbClient.from('leads').select('id',{count:'exact', head:true});
     if(error) throw error;
-    return data;
+    return count;
   },
   async fetchNotes(leadIds){
     if(!leadIds.length) return [];
-    const { data, error } = await sbClient.from('lead_notes').select('*').in('lead_id', leadIds).order('created_at',{ascending:false});
-    if(error) throw error;
-    return data;
+    const out = [];
+    for(let i=0;i<leadIds.length;i+=IN_CHUNK){
+      const chunk = leadIds.slice(i,i+IN_CHUNK);
+      out.push(...await fetchAllPages(()=> sbClient.from('lead_notes').select('*').in('lead_id', chunk).order('created_at',{ascending:false})));
+    }
+    return out;
   },
   async insertLeads(rows){
     const out = [];
@@ -745,15 +781,18 @@ const supaDb = {
   // trips, which reads as "nothing is happening" for tens of seconds.
   async updateLeadsBulk(ids, fields){
     const payload = {...fields, updated_at:new Date().toISOString()};
-    for(let i=0;i<ids.length;i+=200){
-      const chunk = ids.slice(i,i+200);
+    for(let i=0;i<ids.length;i+=IN_CHUNK){
+      const chunk = ids.slice(i,i+IN_CHUNK);
       const { error } = await sbClient.from('leads').update(payload).in('id', chunk);
       if(error) throw error;
     }
   },
   async deleteLeads(ids){
-    const { error } = await sbClient.from('leads').delete().in('id', ids);
-    if(error) throw error;
+    for(let i=0;i<ids.length;i+=IN_CHUNK){
+      const chunk = ids.slice(i,i+IN_CHUNK);
+      const { error } = await sbClient.from('leads').delete().in('id', chunk);
+      if(error) throw error;
+    }
   },
   async insertNote(leadId, text){
     const { data, error } = await sbClient.from('lead_notes').insert({lead_id:leadId, note:text}).select().single();
@@ -761,9 +800,7 @@ const supaDb = {
     return data;
   },
   async fetchCampaigns(){
-    const { data, error } = await sbClient.from('campaigns').select('*').order('date',{ascending:false});
-    if(error) throw error;
-    return data;
+    return fetchAllPages(()=> sbClient.from('campaigns').select('*').order('date',{ascending:false}));
   },
   async insertCampaign(fields){
     const { data, error } = await sbClient.from('campaigns').insert(fields).select().single();
@@ -795,10 +832,34 @@ const state = {
   sheetOrder: JSON.parse(localStorage.getItem('oct_sheet_order_v1')||'[]'),
   activeGroup: JSON.parse(localStorage.getItem('oct_active_group_v1')||'null'),
   selectedIds: new Set(),
+  integrity: null,
+  rowLimit: 300,
 };
 
+/* Safety net. Every load cross-checks how many leads came back against how
+   many the database says exist. If those ever disagree, the app says so
+   loudly instead of quietly showing a partial list — a partial list is what
+   made whole sheets look deleted, and it also silently weakens duplicate
+   protection, since leads that were never fetched can't be matched against. */
 async function refreshLeads(){
   state.leads = await db.fetchLeads();
+  try{
+    const total = await db.fetchLeadCount();
+    state.integrity = (typeof total === 'number' && total !== state.leads.length)
+      ? { loaded: state.leads.length, total }
+      : null;
+  }catch(e){ console.error('Lead count check failed', e); state.integrity = null; }
+  renderIntegrityBanner();
+}
+function renderIntegrityBanner(){
+  const host = $('#integrityBanner');
+  if(!host) return;
+  if(!state.integrity){ host.hidden = true; host.innerHTML = ''; return; }
+  const { loaded, total } = state.integrity;
+  host.hidden = false;
+  host.innerHTML = `<div class="wrap"><b>Heads up:</b> ${loaded.toLocaleString()} of ${total.toLocaleString()} leads loaded.
+    Nothing has been deleted — the rest just didn't come back from the database this time.
+    Reload before importing or deleting anything, so those leads are still checked against.</div>`;
 }
 async function refreshCampaigns(){
   state.campaigns = await db.fetchCampaigns();
@@ -1011,8 +1072,17 @@ function renderLeadsView(){
   </div>`;
 }
 
+/* Rows are rendered in pages. Every row is ~7 live form controls, so drawing
+   all 2500+ at once meant ~18k DOM controls: a ~270ms rebuild on every
+   debounced keystroke, and a scrollbar with 98,000px of content behind it —
+   the thumb was a few pixels tall and useless. Filters, search and export all
+   still operate on the full set; this only limits what's painted. */
+const ROW_PAGE = 300;
 function renderLeadsGridArea(){
-  const rows = filteredSortedLeads();
+  const allRows = filteredSortedLeads();
+  if(state.rowLimit > allRows.length + ROW_PAGE) state.rowLimit = ROW_PAGE;
+  const rows = allRows.slice(0, state.rowLimit);
+  const hiddenCount = allRows.length - rows.length;
   const groups = allGroups();
   const showSource = state.activeGroup===null;
   const colCount = showSource ? 9 : 8;
@@ -1065,7 +1135,13 @@ function renderLeadsGridArea(){
         </tbody>
       </table>
     </div>
-  </div>`;
+  </div>
+  ${hiddenCount>0 ? `
+  <div class="load-more">
+    <span>Showing ${rows.length.toLocaleString()} of ${allRows.length.toLocaleString()} — search or filter to narrow down.</span>
+    <button class="btn btn-ghost btn-sm" id="loadMoreRows">Show ${Math.min(ROW_PAGE, hiddenCount).toLocaleString()} more</button>
+    <button class="btn btn-ghost btn-sm" id="loadAllRows">Show all ${allRows.length.toLocaleString()}</button>
+  </div>` : ''}`;
 }
 
 function refreshLeadsGridArea(){
@@ -1085,6 +1161,27 @@ const LEAD_EXPORT_COLUMNS = [
   {label:'Last contacted', get:l=>l.last_contacted},
   {label:'Next follow-up', get:l=>l.next_follow_up},
 ];
+/* Nothing gets deleted without a copy hitting your downloads folder first.
+   If a delete ever turns out to be wrong, the CSV is a complete record of
+   exactly what went, ready to re-import. */
+function backupBeforeDestruction(rows, label){
+  if(!rows.length) return;
+  try{
+    downloadCSV(`reach-BACKUP-${safeFileSlug(label)}-${todayISO()}.csv`, toCSV(LEAD_EXPORT_COLUMNS, rows));
+  }catch(e){ console.error('Backup export failed', e); }
+}
+/* Deleting a handful is a normal edit; deleting hundreds is a different kind
+   of action and asks for the number to be typed out. */
+function confirmDestructive(rows, verb){
+  const n = rows.length;
+  if(!n) return false;
+  if(n < 25) return confirm(`${verb==='delete'?'Delete':'Change'} ${n} lead${n===1?'':'s'}? A CSV backup will be downloaded first.`);
+  const typed = prompt(`This will ${verb} ${n} leads.\n\nA CSV backup downloads first, but to be safe, type ${n} to confirm.`);
+  if(typed===null) return false;
+  if(typed.trim() !== String(n)){ toast('Cancelled — the number did not match.'); return false; }
+  return true;
+}
+
 function exportLeadsToCSV(rows, labelForFilename){
   if(!rows.length){ toast('Nothing to export.'); return; }
   const csv = toCSV(LEAD_EXPORT_COLUMNS, rows);
@@ -1093,9 +1190,12 @@ function exportLeadsToCSV(rows, labelForFilename){
 }
 
 function wireLeadsView(){
-  $('#searchInput').addEventListener('input', debounce(e=>{ state.filters.q = e.target.value; refreshLeadsGridArea(); updateLeadCountLabel(); },200));
-  $('#statusFilter').addEventListener('change', e=>{ state.filters.status = e.target.value; refreshLeadsGridArea(); updateLeadCountLabel(); });
-  $('#dueFilter').addEventListener('change', e=>{ state.filters.due = e.target.value; refreshLeadsGridArea(); updateLeadCountLabel(); });
+  // Narrowing the view starts the row window over, so you always land on the
+  // first page of the new result rather than deep inside the old one.
+  const applyFilter = ()=>{ state.rowLimit = ROW_PAGE; refreshLeadsGridArea(); updateLeadCountLabel(); };
+  $('#searchInput').addEventListener('input', debounce(e=>{ state.filters.q = e.target.value; applyFilter(); },200));
+  $('#statusFilter').addEventListener('change', e=>{ state.filters.status = e.target.value; applyFilter(); });
+  $('#dueFilter').addEventListener('change', e=>{ state.filters.due = e.target.value; applyFilter(); });
   $('#exportLeadsCsv').addEventListener('click', ()=>{
     const label = state.activeGroup===null ? 'all-leads' : groupLabel(state.activeGroup);
     exportLeadsToCSV(filteredSortedLeads(), label);
@@ -1108,6 +1208,7 @@ function wireLeadsView(){
      refreshing only the grid keeps the element identity intact. */
   const switchGroup = (g)=>{
     setActiveGroup(g==='__all__' ? null : g);
+    state.rowLimit = ROW_PAGE;
     $$('#sheetTabs .sheet-tab').forEach(t=>{
       const tg = t.dataset.group;
       const isActive = (tg==='__all__' && state.activeGroup===null) || (tg!=='__all__' && tg===state.activeGroup);
@@ -1234,18 +1335,22 @@ function wireLeadsGridArea(){
     refreshLeadsGridArea();
   }));
   $('#bulkClear')?.addEventListener('click', ()=>{ state.selectedIds.clear(); refreshLeadsGridArea(); });
+  $('#loadMoreRows')?.addEventListener('click', ()=>{ state.rowLimit += ROW_PAGE; refreshLeadsGridArea(); });
+  $('#loadAllRows')?.addEventListener('click', ()=>{ state.rowLimit = Infinity; refreshLeadsGridArea(); });
   $('#bulkExport')?.addEventListener('click', ()=>{
     const rows = state.leads.filter(l=>state.selectedIds.has(l.id));
     exportLeadsToCSV(rows, 'selected');
   });
   $('#bulkDelete')?.addEventListener('click', async ()=>{
     const ids = [...state.selectedIds];
-    if(!confirm(`Delete ${ids.length} lead${ids.length===1?'':'s'}? This can't be undone.`)) return;
+    const rows = state.leads.filter(l=>state.selectedIds.has(l.id));
+    if(!confirmDestructive(rows, 'delete')) return;
     try{
+      backupBeforeDestruction(rows, 'deleted-leads');
       await db.deleteLeads(ids);
       state.leads = state.leads.filter(l=>!ids.includes(l.id));
       state.selectedIds.clear();
-      toast(`Deleted ${ids.length} lead${ids.length===1?'':'s'}.`);
+      toast(`Deleted ${ids.length} lead${ids.length===1?'':'s'} — a CSV backup was downloaded.`);
       render();
     }catch(e){ console.error(e); toast('Delete failed.'); }
   });
@@ -1339,11 +1444,13 @@ function deleteGroupFlow(name){
   });
   $('#deleteWithLeads')?.addEventListener('click', async ()=>{
     const ids = affected.map(l=>l.id);
+    if(!confirmDestructive(affected, 'delete')) return;
     try{
+      backupBeforeDestruction(affected, `deleted-sheet-${name}`);
       await db.deleteLeads(ids);
       state.leads = state.leads.filter(l=>!ids.includes(l.id));
       removeGroupTab(name);
-      toast(`Deleted sheet and ${count} lead${count===1?'':'s'}.`);
+      toast(`Deleted sheet and ${count} lead${count===1?'':'s'} — a CSV backup was downloaded.`);
     }catch(e){ console.error(e); toast('Delete failed.'); }
     closeModal();
     render();
@@ -1731,7 +1838,12 @@ async function openLeadDetail(id){
 /* ============================= IMPORT FLOW ============================= */
 const IMPORT_FIELDS = [
   {key:'company', label:'Company name', required:false, hints:['company','organisation','organization','business','account']},
-  {key:'contact', label:'Contact person', required:false, hints:['contact','poc','person']},
+  // 'name' is safe to match here even though "Company Name" contains it:
+  // guessMapping claims headers in order and company is resolved first, so
+  // by this point "Company Name" is already taken. Without these, a sheet
+  // whose contact column is literally "First Name" imported with no names
+  // at all — which quietly weakens name-based protection.
+  {key:'contact', label:'Contact person', required:false, hints:['contact','poc','person','first name','last name','full name','name']},
   {key:'email', label:'Email', required:false, hints:['email','e-mail','mail']},
   {key:'notes', label:'Notes', required:false, hints:['note','comment','remark']},
   {key:'status', label:'Status', required:false, hints:['status','stage']},
