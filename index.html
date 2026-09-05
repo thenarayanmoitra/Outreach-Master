@@ -245,13 +245,24 @@ select.filter-select{
 .rowbtn{padding:.4rem .6rem;color:var(--text-3);font-size:.9rem;width:100%}
 .rowbtn:hover{color:var(--ink-deep)}
 
-.sheet-tabs{display:flex;align-items:center;gap:2px;overflow-x:auto;margin-top:.6rem;padding:.3rem;background:var(--paper-deep);border-radius:var(--radius);scrollbar-width:thin}
+/* Fixed-height strip: it scrolls sideways and never grows, wraps or pushes
+   the grid around, no matter how many sheets there are or how long their
+   names get. Long names truncate with an ellipsis (full name on hover). */
+.sheet-tabs{
+  display:flex;align-items:center;gap:2px;flex-wrap:nowrap;
+  height:46px;min-height:46px;flex:0 0 46px;
+  overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;
+  margin-top:.6rem;padding:0 .3rem;background:var(--paper-deep);
+  border-radius:var(--radius);scrollbar-width:thin;
+}
 .sheet-tab{
-  display:flex;align-items:center;gap:.3rem;
-  padding:.5rem .55rem .5rem .85rem;font-size:.8rem;font-weight:600;color:var(--text-2);white-space:nowrap;border-radius:3px 3px 0 0;
+  display:flex;align-items:center;gap:.3rem;flex:0 0 auto;
+  max-width:230px;height:34px;
+  padding:0 .55rem 0 .85rem;font-size:.8rem;font-weight:600;color:var(--text-2);white-space:nowrap;border-radius:3px;
   border-bottom:2px solid transparent;cursor:pointer;position:relative;
   transition:background .12s var(--ease),color .12s var(--ease);
 }
+.sheet-tab-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .sheet-tab:hover{color:var(--ink-deep);background:rgba(255,255,255,.55)}
 .sheet-tab.active{background:var(--surface);color:var(--ink-deep);border-bottom-color:var(--accent-deep)}
 .sheet-tab.dragging{opacity:.35}
@@ -699,6 +710,16 @@ const localDb = {
     const now = new Date().toISOString();
     lsSet(LS_LEADS, all.map(l=> set.has(l.id) ? {...l, ...fields, updated_at: now} : l));
   },
+  async moveSheetLeads(oldSource, newSource){
+    const all = lsGet(LS_LEADS);
+    const now = new Date().toISOString();
+    let n = 0;
+    lsSet(LS_LEADS, all.map(l=>{
+      if((l.source_list||'')!==oldSource) return l;
+      n++; return {...l, source_list:newSource, updated_at:now};
+    }));
+    return n;
+  },
   async deleteLeads(ids){
     lsSet(LS_LEADS, lsGet(LS_LEADS).filter(l=>!ids.includes(l.id)));
     lsSet(LS_NOTES, lsGet(LS_NOTES).filter(n=>!ids.includes(n.lead_id)));
@@ -767,6 +788,11 @@ const supaDb = {
       const chunk = rows.slice(i,i+400);
       const { data, error } = await sbClient.from('leads').insert(chunk).select();
       if(error) throw error;
+      // Imported notes are paired with inserted leads by position, so a short
+      // response would silently staple notes onto the wrong records. Chunks
+      // are 400 (well under the 1000-row response cap), but fail loudly
+      // rather than corrupt the pairing if that ever stops being true.
+      if(data.length !== chunk.length) throw new Error(`Insert returned ${data.length} of ${chunk.length} rows — aborting to avoid mismatched notes.`);
       out.push(...data);
     }
     return out;
@@ -786,6 +812,20 @@ const supaDb = {
       const { error } = await sbClient.from('leads').update(payload).in('id', chunk);
       if(error) throw error;
     }
+  },
+  /* Renaming/moving a whole sheet matches on the server by source_list rather
+     than sending a list of ids gathered from memory. That's what made an 1888
+     row sheet "split in two": only the leads the browser had actually loaded
+     got renamed, and the rest kept the old name and formed a second tab. This
+     touches every matching row in the database in one statement, whether or
+     not it's loaded, so a sheet can't end up half-renamed. */
+  async moveSheetLeads(oldSource, newSource){
+    const { data, error } = await sbClient.from('leads')
+      .update({source_list:newSource, updated_at:new Date().toISOString()})
+      .eq('source_list', oldSource)
+      .select('id');
+    if(error) throw error;
+    return data.length;
   },
   async deleteLeads(ids){
     for(let i=0;i<ids.length;i+=IN_CHUNK){
@@ -925,6 +965,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
 function setView(v){
   state.view = v;
   state.selectedIds.clear();
+  state.rowLimit = ROW_PAGE;
   $$('.tab-btn').forEach(b=> b.classList.toggle('active', b.dataset.view===v));
   render();
 }
@@ -1066,8 +1107,8 @@ function renderLeadsView(){
   </div>
   <div id="leadsGridArea">${renderLeadsGridArea()}</div>
   <div class="sheet-tabs reveal" id="sheetTabs">
-    <div class="sheet-tab ${state.activeGroup===null?'active':''}" data-group="__all__">All leads</div>
-    ${groups.map(g=>`<div class="sheet-tab ${state.activeGroup===g?'active':''}" data-group="${escHtml(g)}" ${g!==''?'draggable="true"':''} title="${g!==''?'Drag to reorder · double-click to rename':'Leads with no sheet'}">${escHtml(groupLabel(g))}${g!==''?`<button class="sheet-tab-btn" data-renamegroup="${escHtml(g)}" title="Rename sheet">✎</button><button class="sheet-tab-btn sheet-tab-close" data-delgroup="${escHtml(g)}" title="Delete sheet">&times;</button>`:''}</div>`).join('')}
+    <div class="sheet-tab ${state.activeGroup===null?'active':''}" data-group="__all__"><span class="sheet-tab-label">All leads</span></div>
+    ${groups.map(g=>`<div class="sheet-tab ${state.activeGroup===g?'active':''}" data-group="${escHtml(g)}" ${g!==''?'draggable="true"':''} title="${escHtml(groupLabel(g))}${g!==''?' — drag to reorder, double-click to rename':''}"><span class="sheet-tab-label">${escHtml(groupLabel(g))}</span>${g!==''?`<button class="sheet-tab-btn" data-renamegroup="${escHtml(g)}" title="Rename sheet">✎</button><button class="sheet-tab-btn sheet-tab-close" data-delgroup="${escHtml(g)}" title="Delete sheet">&times;</button>`:''}</div>`).join('')}
     <button class="sheet-tab-add" id="addSheetTab" title="New sheet">+</button>
   </div>`;
 }
@@ -1170,9 +1211,21 @@ function backupBeforeDestruction(rows, label){
     downloadCSV(`reach-BACKUP-${safeFileSlug(label)}-${todayISO()}.csv`, toCSV(LEAD_EXPORT_COLUMNS, rows));
   }catch(e){ console.error('Backup export failed', e); }
 }
+/* If the browser holds fewer leads than the database has, anything that acts
+   on "the current selection" is working from an incomplete picture — that is
+   precisely how a sheet ends up half-renamed or half-deleted. Refuse rather
+   than act on a partial view. */
+function blockedByIncompleteData(){
+  if(!state.integrity) return false;
+  const { loaded, total } = state.integrity;
+  alert(`Only ${loaded.toLocaleString()} of ${total.toLocaleString()} leads are loaded right now.\n\n`
+    + `Acting on a partial list is how records get half-changed, so this is blocked. Reload the page and try again.`);
+  return true;
+}
 /* Deleting a handful is a normal edit; deleting hundreds is a different kind
    of action and asks for the number to be typed out. */
 function confirmDestructive(rows, verb){
+  if(blockedByIncompleteData()) return false;
   const n = rows.length;
   if(!n) return false;
   if(n < 25) return confirm(`${verb==='delete'?'Delete':'Change'} ${n} lead${n===1?'':'s'}? A CSV backup will be downloaded first.`);
@@ -1349,6 +1402,7 @@ function wireLeadsGridArea(){
       backupBeforeDestruction(rows, 'deleted-leads');
       await db.deleteLeads(ids);
       state.leads = state.leads.filter(l=>!ids.includes(l.id));
+      ids.forEach(id=> state.notesCache.delete(id));
       state.selectedIds.clear();
       toast(`Deleted ${ids.length} lead${ids.length===1?'':'s'} — a CSV backup was downloaded.`);
       render();
@@ -1356,6 +1410,7 @@ function wireLeadsGridArea(){
   });
   $('#bulkStatus')?.addEventListener('change', async (e)=>{
     const val = e.target.value; if(!val) return;
+    if(blockedByIncompleteData()){ e.target.value=''; return; }
     const ids = [...state.selectedIds];
     try{
       await db.updateLeadsBulk(ids, {status: val});
@@ -1366,6 +1421,7 @@ function wireLeadsGridArea(){
   });
   $('#bulkMove')?.addEventListener('change', async (e)=>{
     let val = e.target.value; if(!val) return;
+    if(blockedByIncompleteData()){ e.target.value=''; return; }
     if(val==='__new__'){
       const name = prompt('New sheet name:');
       if(!name || !name.trim()){ refreshLeadsGridArea(); return; }
@@ -1393,17 +1449,21 @@ async function renameGroup(oldName){
   if(idx>-1){ state.customGroups[idx] = trimmed; saveCustomGroups(); }
   const orderIdx = state.sheetOrder.indexOf(oldName);
   if(orderIdx>-1){ state.sheetOrder[orderIdx] = trimmed; saveSheetOrder(); }
-  const affected = state.leads.filter(l=>(l.source_list||'')===oldName);
+  toast('Renaming…');
+  let moved = 0;
   try{
-    if(affected.length) await db.updateLeadsBulk(affected.map(l=>l.id), {source_list: trimmed});
-    affected.forEach(l=> l.source_list = trimmed);
+    moved = await db.moveSheetLeads(oldName, trimmed);
   }catch(e){
     console.error(e);
-    toast('Rename failed — check console.');
+    toast('Rename failed — nothing was changed. Check console.');
     return;
   }
+  // Re-read from the database rather than patching memory, so what's on
+  // screen is what's actually stored — including any rows this browser
+  // hadn't loaded when the rename started.
+  await refreshLeads();
   if(state.activeGroup===oldName) setActiveGroup(trimmed);
-  toast(`Renamed to "${trimmed}" (${affected.length} lead${affected.length===1?'':'s'}).`);
+  toast(`Renamed to "${trimmed}" (${moved} lead${moved===1?'':'s'}).`);
   render();
 }
 
@@ -1434,10 +1494,10 @@ function deleteGroupFlow(name){
   $('#cancelDelSheet').addEventListener('click', closeModal);
   $('#moveThenDelete')?.addEventListener('click', async ()=>{
     try{
-      await db.updateLeadsBulk(affected.map(l=>l.id), {source_list:''});
-      affected.forEach(l=> l.source_list = '');
+      const moved = await db.moveSheetLeads(name, '');
+      await refreshLeads();
       removeGroupTab(name);
-      toast(`Moved ${count} lead${count===1?'':'s'} to Unlabeled.`);
+      toast(`Moved ${moved} lead${moved===1?'':'s'} to Unlabeled.`);
     }catch(e){ console.error(e); toast('Could not move those leads.'); }
     closeModal();
     render();
@@ -1449,6 +1509,7 @@ function deleteGroupFlow(name){
       backupBeforeDestruction(affected, `deleted-sheet-${name}`);
       await db.deleteLeads(ids);
       state.leads = state.leads.filter(l=>!ids.includes(l.id));
+      ids.forEach(id=> state.notesCache.delete(id));
       removeGroupTab(name);
       toast(`Deleted sheet and ${count} lead${count===1?'':'s'} — a CSV backup was downloaded.`);
     }catch(e){ console.error(e); toast('Delete failed.'); }
