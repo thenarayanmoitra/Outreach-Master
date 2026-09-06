@@ -210,7 +210,18 @@ select.filter-select{
 
 /* ---------- spreadsheet-style leads grid ---------- */
 .sheet-shell{border:1px solid var(--sep-strong);border-radius:var(--radius);background:var(--surface);overflow:hidden}
-.sheet-scroll{overflow:auto;max-height:calc(100vh - 232px);min-height:240px;overscroll-behavior:contain}
+.sheet-scroll{
+  overflow:auto;min-height:240px;overscroll-behavior:contain;
+  /* Leaves room for the toolbar above and the docked sheet strip below, so
+     the page itself rarely needs to scroll and the strip stays reachable. */
+  max-height:calc(100vh - 268px);
+  max-height:calc(100dvh - 268px);
+}
+.sheet-scroll::-webkit-scrollbar{width:11px;height:11px}
+.sheet-scroll::-webkit-scrollbar-track{background:var(--paper-deep)}
+.sheet-scroll::-webkit-scrollbar-thumb{background:rgba(22,36,28,.24);border-radius:99px;border:3px solid var(--paper-deep)}
+.sheet-scroll::-webkit-scrollbar-thumb:hover{background:rgba(22,36,28,.4)}
+.sheet-scroll::-webkit-scrollbar-corner{background:var(--paper-deep)}
 .load-more{
   display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;
   margin-top:.55rem;padding:.55rem .8rem;background:var(--paper-deep);
@@ -245,6 +256,15 @@ select.filter-select{
 .rowbtn{padding:.4rem .6rem;color:var(--text-3);font-size:.9rem;width:100%}
 .rowbtn:hover{color:var(--ink-deep)}
 
+/* The sheet strip is docked to the bottom of the window (sticky), so a long
+   list can never push it below the fold — you never have to scroll a
+   thousand rows to reach your other sheets. The dock fades the rows out
+   underneath it instead of cutting them off with a hard edge. */
+.sheet-dock{
+  position:sticky;bottom:0;z-index:30;
+  margin-top:.55rem;padding-top:.7rem;padding-bottom:var(--safe-bottom);
+  background:linear-gradient(to bottom, rgba(241,244,236,0) 0%, var(--paper) 55%, var(--paper) 100%);
+}
 /* Fixed-height strip: it scrolls sideways and never grows, wraps or pushes
    the grid around, no matter how many sheets there are or how long their
    names get. Long names truncate with an ellipsis (full name on hover). */
@@ -252,19 +272,39 @@ select.filter-select{
   display:flex;align-items:center;gap:2px;flex-wrap:nowrap;
   height:46px;min-height:46px;flex:0 0 46px;
   overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;
-  margin-top:.6rem;padding:0 .3rem;background:var(--paper-deep);
+  padding:0 .3rem;background:var(--paper-deep);
+  border:1px solid var(--sep);
   border-radius:var(--radius);scrollbar-width:thin;
+  box-shadow:0 1px 2px rgba(22,36,28,.05);
 }
+.sheet-tabs::-webkit-scrollbar{height:7px}
+.sheet-tabs::-webkit-scrollbar-track{background:transparent}
+.sheet-tabs::-webkit-scrollbar-thumb{background:rgba(22,36,28,.2);border-radius:99px}
 .sheet-tab{
-  display:flex;align-items:center;gap:.3rem;flex:0 0 auto;
-  max-width:230px;height:34px;
-  padding:0 .55rem 0 .85rem;font-size:.8rem;font-weight:600;color:var(--text-2);white-space:nowrap;border-radius:3px;
+  --tabc:var(--accent-deep);
+  display:flex;align-items:center;gap:.35rem;flex:0 0 auto;
+  max-width:250px;height:34px;
+  padding:0 .4rem 0 .7rem;font-size:.8rem;font-weight:600;color:var(--text-2);white-space:nowrap;border-radius:3px;
   border-bottom:2px solid transparent;cursor:pointer;position:relative;
   transition:background .12s var(--ease),color .12s var(--ease);
 }
 .sheet-tab-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .sheet-tab:hover{color:var(--ink-deep);background:rgba(255,255,255,.55)}
-.sheet-tab.active{background:var(--surface);color:var(--ink-deep);border-bottom-color:var(--accent-deep)}
+.sheet-tab.active{background:var(--surface);color:var(--ink-deep);border-bottom-color:var(--tabc)}
+.sheet-tab.colored.active{background:color-mix(in srgb, var(--tabc) 10%, #fff)}
+/* Colour chip and pin marker. Both are pure decoration over the same tab, so
+   a sheet can be pinned, coloured, both, or neither without the layout
+   shifting the label around. */
+.sheet-swatch{
+  width:9px;height:9px;border-radius:2px;flex-shrink:0;background:var(--tabc);
+  box-shadow:inset 0 0 0 1px rgba(22,36,28,.18);
+}
+.sheet-pin{width:11px;height:11px;flex-shrink:0;fill:var(--tabc);opacity:.9}
+.sheet-tab-count{
+  font-family:'Space Mono',monospace;font-size:.6rem;color:var(--text-3);
+  flex-shrink:0;letter-spacing:.02em;
+}
+.sheet-tab.active .sheet-tab-count{color:var(--text-2)}
 .sheet-tab.dragging{opacity:.35}
 .sheet-tab.drop-before::before,.sheet-tab.drop-after::after{
   content:'';position:absolute;top:4px;bottom:4px;width:2px;background:var(--accent-deep);border-radius:2px;
@@ -272,13 +312,50 @@ select.filter-select{
 .sheet-tab.drop-before::before{left:-2px}
 .sheet-tab.drop-after::after{right:-2px}
 .sheet-tab-btn{
-  opacity:0;width:17px;height:17px;border-radius:50%;font-size:.72rem;line-height:1;color:var(--text-3);
+  opacity:0;width:19px;height:19px;border-radius:4px;font-size:.8rem;line-height:1;color:var(--text-3);
   display:flex;align-items:center;justify-content:center;flex-shrink:0;
   transition:opacity .12s var(--ease),background .12s var(--ease),color .12s var(--ease);
 }
-.sheet-tab:hover .sheet-tab-btn,.sheet-tab.active .sheet-tab-btn{opacity:.75}
-.sheet-tab-btn:hover{opacity:1 !important;background:var(--parchment);color:var(--ink-deep)}
-.sheet-tab-close:hover{background:var(--red);color:#fff}
+.sheet-tab:hover .sheet-tab-btn,.sheet-tab.active .sheet-tab-btn,.sheet-tab.menu-open .sheet-tab-btn{opacity:.7}
+.sheet-tab-btn:hover,.sheet-tab.menu-open .sheet-tab-btn{opacity:1 !important;background:var(--parchment);color:var(--ink-deep)}
+/* Hover isn't a thing on touch, so the menu affordance is always visible there. */
+@media (hover:none){ .sheet-tab-btn{opacity:.6} }
+
+/* ---------- sheet context menu ---------- */
+.sheet-menu{
+  position:fixed;z-index:120;min-width:216px;padding:.45rem;
+  background:var(--surface);border:1px solid var(--sep-strong);border-radius:6px;
+  box-shadow:0 12px 34px rgba(22,36,28,.22);animation:menuIn .13s var(--ease) both;
+}
+@keyframes menuIn{from{opacity:0;transform:translateY(4px) scale(.98)}to{opacity:1;transform:none}}
+.sheet-menu-head{
+  padding:.3rem .5rem .45rem;color:var(--text-3);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.swatch-row{display:grid;grid-template-columns:repeat(6,1fr);gap:.3rem;padding:.15rem .35rem .5rem;border-bottom:1px solid var(--sep);margin-bottom:.35rem}
+.swatch{
+  height:22px;border-radius:4px;background:var(--sw,transparent);position:relative;
+  box-shadow:inset 0 0 0 1px rgba(22,36,28,.15);transition:transform .1s var(--ease)
+}
+.swatch:hover{transform:scale(1.08)}
+.swatch.sel::after{
+  content:'';position:absolute;inset:-3px;border-radius:6px;border:2px solid var(--ink-deep);
+}
+.swatch-none{background:
+  linear-gradient(to top left, transparent calc(50% - 1px), var(--sep-strong) 50%, transparent calc(50% + 1px)),
+  var(--paper-deep)}
+.sheet-menu-item{
+  display:flex;align-items:center;gap:.5rem;width:100%;text-align:left;
+  padding:.45rem .5rem;border-radius:4px;font-size:.85rem;font-weight:600;color:var(--text)
+}
+.sheet-menu-item:hover{background:var(--paper-deep)}
+.sheet-menu-item.danger{color:var(--red)}
+.sheet-menu-item.danger:hover{background:rgba(178,58,46,.1)}
+.sheet-menu-item .mi-ic{width:14px;height:14px;fill:currentColor;flex-shrink:0;opacity:.75}
+
+/* A coloured sheet shows the same colour as a rail on its rows' Sheet cell,
+   so the colour means something once you're looking at All leads. */
+.sheet-rail{box-shadow:inset 3px 0 0 var(--tabc)}
 .sheet-tab-add{padding:.5rem .8rem;color:var(--text-3);font-weight:700;font-size:1rem;border-radius:3px}
 .sheet-tab-add:hover{color:var(--ink-deep);background:rgba(255,255,255,.5)}
 
@@ -380,12 +457,85 @@ select.filter-select{
 .note-add textarea{flex:1}
 
 /* ---------- toast ---------- */
-#toastHost{position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;gap:.5rem;align-items:center}
+/* Clear of the docked sheet strip — a toast that covers the tabs hides the
+   thing you most likely just acted on. */
+#toastHost{position:fixed;bottom:calc(4.7rem + var(--safe-bottom));left:50%;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;gap:.5rem;align-items:center;pointer-events:none}
 .toast{
   background:var(--ink-deep);color:var(--paper);padding:.7rem 1.1rem;border-radius:var(--radius);
   font-size:.85rem;box-shadow:0 4px 16px rgba(22,36,28,.3);animation:toastIn .25s var(--ease);
 }
 @keyframes toastIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+/* ---------- import progress ---------- */
+.prog-overlay{
+  position:fixed;inset:0;z-index:150;display:flex;align-items:center;justify-content:center;padding:1.25rem;
+  background:rgba(22,36,28,.55);backdrop-filter:blur(3px);
+  /* Held invisible for a beat: a small file finishes inside that window, so
+     quick imports never flash a dialog you can't read. */
+  animation:fadeIn .18s var(--ease) .22s both;
+}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.prog-card{
+  width:100%;max-width:430px;background:var(--surface);border-radius:8px;padding:1.6rem 1.7rem 1.4rem;
+  box-shadow:0 20px 60px rgba(22,36,28,.35);animation:menuIn .22s var(--ease) .22s both;
+}
+.prog-steps{display:flex;align-items:center;gap:.5rem;margin-bottom:1.1rem}
+.prog-step{
+  display:flex;align-items:center;gap:.35rem;font-family:'Space Mono',monospace;
+  text-transform:uppercase;letter-spacing:.14em;font-size:.58rem;color:var(--text-3);
+  transition:color .2s var(--ease);
+}
+.prog-step i{
+  width:7px;height:7px;border-radius:50%;background:var(--sep-strong);display:block;
+  transition:background .2s var(--ease),box-shadow .2s var(--ease);
+}
+.prog-step + .prog-step{padding-left:.5rem;border-left:1px solid var(--sep)}
+.prog-step.done{color:var(--text-2)}
+.prog-step.done i{background:var(--green)}
+.prog-step.now{color:var(--ink-deep)}
+.prog-step.now i{background:var(--accent-deep);box-shadow:0 0 0 3px rgba(217,138,43,.2);animation:pulseDot 1.4s ease-in-out infinite}
+@keyframes pulseDot{0%,100%{box-shadow:0 0 0 3px rgba(217,138,43,.18)}50%{box-shadow:0 0 0 6px rgba(217,138,43,.05)}}
+.prog-title{font-size:1.18rem;margin-bottom:.3rem}
+.prog-sub{color:var(--text-2);font-size:.85rem;margin:0 0 1.15rem}
+.prog-readout{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;margin-bottom:.55rem}
+.prog-pct{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:2.3rem;line-height:1;color:var(--ink-deep);font-variant-numeric:tabular-nums}
+.prog-pct span{font-size:1.1rem;color:var(--text-3);margin-left:.1rem}
+.prog-eta{font-size:.85rem;color:var(--accent-deep);font-weight:600;text-align:right}
+.prog-track{height:9px;background:var(--paper-deep);border-radius:99px;overflow:hidden;position:relative}
+.prog-fill{
+  height:100%;border-radius:99px;transition:width .28s var(--ease);
+  background:linear-gradient(90deg,var(--accent-deep),var(--accent));
+  position:relative;overflow:hidden;
+}
+/* A slow diagonal sheen over the filled part: it keeps moving even when the
+   number is momentarily stuck on one long database round trip, so the thing
+   reads as "still working" rather than "frozen". */
+.prog-fill::after{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(100deg,transparent 20%,rgba(255,255,255,.42) 50%,transparent 80%);
+  background-size:220% 100%;animation:sheen 1.5s linear infinite;
+}
+.prog-track.indet .prog-fill{width:38% !important;animation:indet 1.25s var(--ease) infinite;background:linear-gradient(90deg,var(--accent-soft),var(--accent-deep))}
+@keyframes sheen{from{background-position:120% 0}to{background-position:-120% 0}}
+@keyframes indet{0%{transform:translateX(-105%)}100%{transform:translateX(275%)}}
+.prog-foot{display:flex;justify-content:space-between;margin-top:.6rem;color:var(--text-3)}
+.prog-note{
+  margin:.75rem 0 0;font-size:.78rem;color:var(--text-3);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-height:1.1em;
+}
+.prog-hide{
+  display:block;width:100%;margin-top:.9rem;padding:.4rem;font-size:.76rem;color:var(--text-3);
+  border-top:1px solid var(--sep);border-radius:0;
+}
+.prog-hide:hover{color:var(--ink-deep)}
+.prog-card.is-done .prog-pct{color:var(--green)}
+.prog-card.is-done .prog-fill{background:var(--green)}
+.prog-card.is-done .prog-fill::after{animation:none;opacity:0}
+.prog-card.is-done .prog-eta{color:var(--green)}
+@media (prefers-reduced-motion:reduce){
+  .prog-fill::after,.prog-step.now i{animation:none}
+  .prog-track.indet .prog-fill{animation:none;width:100% !important;opacity:.5}
+}
 
 /* Entrance is a self-playing CSS animation rather than JS adding an .in class.
    The JS version left elements stuck at opacity:0 whenever rAF/timers were
@@ -442,6 +592,7 @@ select.filter-select{
 
 <div id="toastHost"></div>
 <div id="modalHost"></div>
+<div id="progressHost"></div>
 
 <script>
 /* ============================= CONFIG ============================= */
@@ -453,6 +604,21 @@ const STATUSES = ['Won','In Progress','Warm','Not Now','Dead'];
 const CAMPAIGN_STATUSES = ['Scheduled','In Progress','Completed','Paused'];
 const FREE_EMAIL_DOMAINS = new Set(['gmail.com','yahoo.com','outlook.com','hotmail.com','icloud.com','aol.com','protonmail.com','live.com','yandex.com','mail.com','gmx.com','me.com']);
 const SUFFIXES = ['pvt ltd','pvt.ltd','private limited','pte ltd','ltd','limited','llc','llp','inc','incorporated','corp','corporation','co','company','group','groups','travel','travels','tours','tour','tourism','dmc','gmbh','sarl','plc','holdings','enterprises','enterprise','associates','associate','agency','agencies','association','associations','alliance','federation','network','networks','media','resort','resorts','hotel','hotels','solutions','partners','ventures','coalition','council','society','foundation','chamber'];
+/* Muted, paper-friendly palette for colour-coding sheets. Hex values are
+   stored per sheet in localStorage, so adding to this list later never
+   invalidates a colour someone already picked. */
+const SHEET_COLORS = [
+  {name:'Clay',   hex:'#B23A2E'},
+  {name:'Ochre',  hex:'#8A5410'},
+  {name:'Amber',  hex:'#B07C1E'},
+  {name:'Moss',   hex:'#3F7A4B'},
+  {name:'Teal',   hex:'#2C6C68'},
+  {name:'Sky',    hex:'#3D628A'},
+  {name:'Indigo', hex:'#4B4A8A'},
+  {name:'Plum',   hex:'#6E4573'},
+  {name:'Rose',   hex:'#9B4A63'},
+  {name:'Slate',  hex:'#59685C'},
+];
 const STATUS_SYNONYMS = {
   won:'Won',client:'Won',signed:'Won',closed:'Won',
   'in progress':'In Progress',negotiating:'In Progress',proposal:'In Progress',active:'In Progress',
@@ -692,11 +858,12 @@ const localDb = {
     const all = lsGet(LS_NOTES);
     return all.filter(n=>leadIds.includes(n.lead_id)).sort((a,b)=> (b.created_at||'').localeCompare(a.created_at||''));
   },
-  async insertLeads(rows){
+  async insertLeads(rows, onProgress){
     const all = lsGet(LS_LEADS);
     const now = new Date().toISOString();
     const withIds = rows.map(r=>({ id: uid(), created_at: now, updated_at: now, ...r }));
     lsSet(LS_LEADS, all.concat(withIds));
+    if(onProgress) onProgress(withIds.length);
     return withIds;
   },
   async updateLead(id, fields){
@@ -782,7 +949,7 @@ const supaDb = {
     }
     return out;
   },
-  async insertLeads(rows){
+  async insertLeads(rows, onProgress){
     const out = [];
     for(let i=0;i<rows.length;i+=400){
       const chunk = rows.slice(i,i+400);
@@ -794,6 +961,7 @@ const supaDb = {
       // rather than corrupt the pairing if that ever stops being true.
       if(data.length !== chunk.length) throw new Error(`Insert returned ${data.length} of ${chunk.length} rows — aborting to avoid mismatched notes.`);
       out.push(...data);
+      if(onProgress) onProgress(data.length);
     }
     return out;
   },
@@ -859,6 +1027,25 @@ const supaDb = {
 };
 const db = CONFIGURED ? supaDb : localDb;
 
+/* localStorage is user-editable and can be left half-written by a crashed
+   tab. A throw here used to happen before any UI existed, which meant one
+   corrupt key showed a blank page; now a bad value just falls back. */
+function lsJson(key, fallback){
+  try{
+    const raw = localStorage.getItem(key);
+    if(raw==null) return fallback;
+    const val = JSON.parse(raw);
+    if(val==null) return fallback;
+    // Only shape-check when the fallback actually declares a shape. The
+    // active sheet's fallback is null and its real value is a string, so a
+    // blanket "must match typeof fallback" check would wipe it on every load.
+    if(Array.isArray(fallback) && !Array.isArray(val)) return fallback;
+    if(fallback && typeof fallback==='object' && !Array.isArray(fallback)
+       && (typeof val!=='object' || Array.isArray(val))) return fallback;
+    return val;
+  }catch(e){ console.error('Unreadable saved setting:', key, e); return fallback; }
+}
+
 /* ============================= STATE ============================= */
 const state = {
   view: 'dashboard',
@@ -867,10 +1054,12 @@ const state = {
   notesCache: new Map(),
   filters: { status:'', due:'', q:'' },
   sort: { key:'created_at', dir:'desc' },
-  columnMaps: JSON.parse(localStorage.getItem('oct_column_maps_v1')||'{}'),
-  customGroups: JSON.parse(localStorage.getItem('oct_custom_groups_v1')||'[]'),
-  sheetOrder: JSON.parse(localStorage.getItem('oct_sheet_order_v1')||'[]'),
-  activeGroup: JSON.parse(localStorage.getItem('oct_active_group_v1')||'null'),
+  columnMaps: lsJson('oct_column_maps_v1', {}),
+  customGroups: lsJson('oct_custom_groups_v1', []),
+  sheetOrder: lsJson('oct_sheet_order_v1', []),
+  sheetPins: lsJson('oct_sheet_pins_v1', []),
+  sheetColors: lsJson('oct_sheet_colors_v1', {}),
+  activeGroup: lsJson('oct_active_group_v1', null),
   selectedIds: new Set(),
   integrity: null,
   rowLimit: 300,
@@ -912,9 +1101,47 @@ function setActiveGroup(g){
 }
 function saveCustomGroups(){ localStorage.setItem('oct_custom_groups_v1', JSON.stringify(state.customGroups)); }
 function saveSheetOrder(){ localStorage.setItem('oct_sheet_order_v1', JSON.stringify(state.sheetOrder)); }
-/* Tab order is whatever you dragged it into (kept in sheetOrder). Sheets that
-   haven't been dragged yet fall in after the ordered ones, alphabetically,
-   with Unlabeled pinned last. */
+function saveSheetPins(){ localStorage.setItem('oct_sheet_pins_v1', JSON.stringify(state.sheetPins)); }
+function saveSheetColors(){ localStorage.setItem('oct_sheet_colors_v1', JSON.stringify(state.sheetColors)); }
+
+/* Pins and colours are presentation only — they live in this browser and
+   never touch a lead record, so nothing here can lose or alter data. */
+function isPinned(g){ return g!=='' && state.sheetPins.includes(g); }
+function togglePin(g){
+  if(g==='') return;
+  const i = state.sheetPins.indexOf(g);
+  if(i>-1) state.sheetPins.splice(i,1); else state.sheetPins.push(g);
+  saveSheetPins();
+}
+function sheetColor(g){ return state.sheetColors[g] || ''; }
+function setSheetColor(g, hex){
+  if(hex) state.sheetColors[g] = hex; else delete state.sheetColors[g];
+  saveSheetColors();
+}
+/* Keeps a sheet's pin and colour attached to it through a rename, and drops
+   them when the sheet itself goes. */
+function carrySheetPrefs(oldName, newName){
+  if(oldName===newName) return;
+  // Rename can also be a merge into an existing sheet, so both names are
+  // collapsed into one entry rather than leaving a stale or duplicate pin.
+  const pinned = state.sheetPins.includes(oldName) || state.sheetPins.includes(newName);
+  state.sheetPins = state.sheetPins.filter(g=> g!==oldName && g!==newName);
+  if(pinned) state.sheetPins.push(newName);
+  saveSheetPins();
+  const color = state.sheetColors[newName] || state.sheetColors[oldName];
+  delete state.sheetColors[oldName];
+  if(color) state.sheetColors[newName] = color;
+  saveSheetColors();
+}
+function dropSheetPrefs(name){
+  const pi = state.sheetPins.indexOf(name);
+  if(pi>-1){ state.sheetPins.splice(pi,1); saveSheetPins(); }
+  if(state.sheetColors[name]){ delete state.sheetColors[name]; saveSheetColors(); }
+}
+
+/* Tab order: pinned sheets first, then whatever you dragged things into
+   (kept in sheetOrder). Sheets that haven't been dragged yet fall in after
+   the ordered ones, alphabetically, with Unlabeled always last. */
 function allGroups(){
   const fromLeads = new Set(state.leads.map(l=> l.source_list || ''));
   const set = new Set([...fromLeads, ...state.customGroups]);
@@ -926,6 +1153,8 @@ function allGroups(){
   return groups.sort((a,b)=>{
     if(a==='') return 1;
     if(b==='') return -1;
+    const pa = isPinned(a)?0:1, pb = isPinned(b)?0:1;
+    if(pa!==pb) return pa-pb;
     const oa = orderOf(a), ob = orderOf(b);
     if(oa!==ob) return oa-ob;
     return a.localeCompare(b);
@@ -942,6 +1171,14 @@ function moveSheet(dragged, target, placeAfter){
   saveSheetOrder();
 }
 function groupLabel(g){ return g===''? 'Unlabeled' : g; }
+function sheetCounts(){
+  const m = new Map();
+  for(const l of state.leads){
+    const k = l.source_list || '';
+    m.set(k, (m.get(k)||0)+1);
+  }
+  return m;
+}
 
 /* ============================= INIT ============================= */
 document.addEventListener('DOMContentLoaded', async ()=>{
@@ -1003,7 +1240,7 @@ function renderDashboard(){
 
   const sourceMap = {};
   leads.forEach(l=>{
-    const src = l.source_list || 'Unlabeled';
+    const src = l.source_list || '';
     sourceMap[src] = (sourceMap[src]||0)+1;
   });
   const sources = Object.entries(sourceMap).sort((a,b)=>b[1]-a[1]).slice(0,5);
@@ -1042,7 +1279,10 @@ function renderDashboard(){
 
     <div class="card cell-source reveal">
       <span class="mono">By sheet</span>
-      ${sources.length ? `<div class="mini-list">${sources.map(([name,count])=>`<div class="mini-row"><span class="mini-row-left">${escHtml(name)}</span><span class="mini-row-right">${count}</span></div>`).join('')}</div>` : `<div class="empty-note">No leads yet.</div>`}
+      ${sources.length ? `<div class="mini-list">${sources.map(([name,count])=>{
+        const sc = sheetColor(name);
+        return `<div class="mini-row"><span class="mini-row-left">${sc?`<span class="dot" style="background:${escHtml(sc)}"></span>`:''}${escHtml(groupLabel(name))}</span><span class="mini-row-right">${count}</span></div>`;
+      }).join('')}</div>` : `<div class="empty-note">No leads yet.</div>`}
     </div>
 
     <div class="card card-tint cell-followup reveal">
@@ -1089,8 +1329,59 @@ function updateLeadCountLabel(){
   if(el) el.textContent = leadCountText();
 }
 
-function renderLeadsView(){
+const PIN_SVG = '<svg class="sheet-pin" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.1 1.4h3.8l-.55 4.3 2.55 2.35v1.2H8.65v5.05L8 15.6l-.65-1.3V9.25H3.1v-1.2L5.65 5.7z"/></svg>';
+
+/* One tab per sheet. A tab can carry a colour chip, a pin marker and a lead
+   count; every one of those is optional and none of them change the tab's
+   click target, so switching sheets works exactly as before. */
+function renderSheetTabsInner(){
   const groups = allGroups();
+  const counts = sheetCounts();
+  const total = state.leads.length;
+  const allTab = `<div class="sheet-tab ${state.activeGroup===null?'active':''}" data-group="__all__" title="Every lead across every sheet">
+      <span class="sheet-tab-label">All leads</span>
+      <span class="sheet-tab-count">${total.toLocaleString()}</span>
+    </div>`;
+  const tabs = groups.map(g=>{
+    const isReal = g!=='';
+    const color = isReal ? sheetColor(g) : '';
+    const pinned = isPinned(g);
+    const n = counts.get(g) || 0;
+    const cls = ['sheet-tab'];
+    if(state.activeGroup===g) cls.push('active');
+    if(color) cls.push('colored');
+    if(pinned) cls.push('pinned');
+    const hint = isReal ? ' — drag to reorder, double-click to rename, ⋯ for colour and pin' : '';
+    return `<div class="${cls.join(' ')}" data-group="${escHtml(g)}" ${color?`style="--tabc:${escHtml(color)}"`:''} ${isReal?'draggable="true"':''} title="${escHtml(groupLabel(g))}${pinned?' (pinned)':''}${hint}">
+      ${color?'<span class="sheet-swatch"></span>':''}
+      ${pinned?PIN_SVG:''}
+      <span class="sheet-tab-label">${escHtml(groupLabel(g))}</span>
+      <span class="sheet-tab-count">${n.toLocaleString()}</span>
+      ${isReal?`<button class="sheet-tab-btn sheet-tab-menu" data-menugroup="${escHtml(g)}" title="Sheet options" aria-label="Options for ${escHtml(g)}">⋯</button>`:''}
+    </div>`;
+  }).join('');
+  return allTab + tabs + `<button class="sheet-tab-add" id="addSheetTab" title="New sheet">+</button>`;
+}
+
+function refreshSheetTabs(){
+  const host = $('#sheetTabs');
+  if(!host) return;
+  const keepScroll = host.scrollLeft;
+  host.innerHTML = renderSheetTabsInner();
+  wireSheetTabs();
+  host.scrollLeft = keepScroll;
+}
+
+function ensureActiveTabVisible(){
+  const host = $('#sheetTabs');
+  const act = host && host.querySelector('.sheet-tab.active');
+  if(!host || !act) return;
+  const left = act.offsetLeft, right = left + act.offsetWidth;
+  if(left < host.scrollLeft) host.scrollLeft = Math.max(0, left - 10);
+  else if(right > host.scrollLeft + host.clientWidth) host.scrollLeft = right - host.clientWidth + 10;
+}
+
+function renderLeadsView(){
   return `
   <div class="toolbar reveal">
     <input class="search-input" id="searchInput" placeholder="Search company, contact, or email…" value="${escHtml(state.filters.q)}">
@@ -1106,10 +1397,8 @@ function renderLeadsView(){
     <span id="leadCountLabel" style="color:var(--text-3);font-size:.8rem;white-space:nowrap">${leadCountText()}</span>
   </div>
   <div id="leadsGridArea">${renderLeadsGridArea()}</div>
-  <div class="sheet-tabs reveal" id="sheetTabs">
-    <div class="sheet-tab ${state.activeGroup===null?'active':''}" data-group="__all__"><span class="sheet-tab-label">All leads</span></div>
-    ${groups.map(g=>`<div class="sheet-tab ${state.activeGroup===g?'active':''}" data-group="${escHtml(g)}" ${g!==''?'draggable="true"':''} title="${escHtml(groupLabel(g))}${g!==''?' — drag to reorder, double-click to rename':''}"><span class="sheet-tab-label">${escHtml(groupLabel(g))}</span>${g!==''?`<button class="sheet-tab-btn" data-renamegroup="${escHtml(g)}" title="Rename sheet">✎</button><button class="sheet-tab-btn sheet-tab-close" data-delgroup="${escHtml(g)}" title="Delete sheet">&times;</button>`:''}</div>`).join('')}
-    <button class="sheet-tab-add" id="addSheetTab" title="New sheet">+</button>
+  <div class="sheet-dock">
+    <div class="sheet-tabs" id="sheetTabs">${renderSheetTabsInner()}</div>
   </div>`;
 }
 
@@ -1169,7 +1458,7 @@ function renderLeadsGridArea(){
               <td><input class="cell-input" data-field="contact_person" value="${escHtml(l.contact_person||'')}" placeholder="Contact"></td>
               <td><input class="cell-input" data-field="email" value="${escHtml(l.email||'')}" placeholder="Email"></td>
               <td><select class="cell-select ${statusClass(l.status)}" data-field="status">${STATUSES.map(s=>`<option value="${s}" ${l.status===s?'selected':''}>${s}</option>`).join('')}</select></td>
-              ${showSource?`<td><input class="cell-input" data-field="source_list" value="${escHtml(l.source_list||'')}" placeholder="—"></td>`:''}
+              ${showSource?(()=>{ const sc = sheetColor(l.source_list||''); return `<td class="${sc?'sheet-rail':''}" ${sc?`style="--tabc:${escHtml(sc)}"`:''}><input class="cell-input" data-field="source_list" value="${escHtml(l.source_list||'')}" placeholder="—"></td>`; })():''}
               <td class="${l.next_follow_up && l.next_follow_up<=daysFromNow(7)?'follow-due-cell':''}"><input type="date" class="cell-input" data-field="next_follow_up" value="${l.next_follow_up||''}"></td>
               <td><button class="rowbtn" data-notes="${l.id}" title="Notes & details">🗒</button></td>
             </tr>`).join('') : `<tr><td colspan="${colCount}" style="text-align:center;color:var(--text-3);padding:2.5rem;border:none">No leads here yet. Import a sheet or add one manually.</td></tr>`}
@@ -1254,81 +1543,7 @@ function wireLeadsView(){
     exportLeadsToCSV(filteredSortedLeads(), label);
   });
 
-  /* Switching tabs deliberately does NOT re-render the whole view. It used to,
-     which quietly broke double-click-to-rename: the first click replaced the
-     tab element, so the second click landed on a different node and the
-     dblclick event never fired at all. Swapping the active class in place and
-     refreshing only the grid keeps the element identity intact. */
-  const switchGroup = (g)=>{
-    setActiveGroup(g==='__all__' ? null : g);
-    state.rowLimit = ROW_PAGE;
-    $$('#sheetTabs .sheet-tab').forEach(t=>{
-      const tg = t.dataset.group;
-      const isActive = (tg==='__all__' && state.activeGroup===null) || (tg!=='__all__' && tg===state.activeGroup);
-      t.classList.toggle('active', isActive);
-    });
-    refreshLeadsGridArea();
-    updateLeadCountLabel();
-  };
-  $$('.sheet-tab[data-group]').forEach(tab=> {
-    tab.addEventListener('click', ()=> switchGroup(tab.dataset.group));
-    if(tab.dataset.group!=='__all__'){
-      tab.addEventListener('dblclick', (e)=>{ e.stopPropagation(); renameGroup(tab.dataset.group); });
-    }
-  });
-  $$('.sheet-tab-btn[data-renamegroup]').forEach(btn=> btn.addEventListener('click', (e)=>{
-    e.stopPropagation();
-    renameGroup(btn.dataset.renamegroup);
-  }));
-  $$('.sheet-tab-close[data-delgroup]').forEach(btn=> btn.addEventListener('click', (e)=>{
-    e.stopPropagation();
-    deleteGroupFlow(btn.dataset.delgroup);
-  }));
-
-  // Drag a tab onto another to reorder, Google Sheets style.
-  let draggedGroup = null;
-  const clearDropMarks = ()=> $$('#sheetTabs .sheet-tab').forEach(t=>t.classList.remove('drop-before','drop-after'));
-  $$('.sheet-tab[draggable="true"]').forEach(tab=>{
-    tab.addEventListener('dragstart', e=>{
-      draggedGroup = tab.dataset.group;
-      tab.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', draggedGroup);
-    });
-    tab.addEventListener('dragend', ()=>{ tab.classList.remove('dragging'); clearDropMarks(); draggedGroup = null; });
-    tab.addEventListener('dragover', e=>{
-      if(!draggedGroup || tab.dataset.group===draggedGroup || tab.dataset.group==='') return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      const rect = tab.getBoundingClientRect();
-      const after = (e.clientX - rect.left) > rect.width/2;
-      clearDropMarks();
-      tab.classList.add(after ? 'drop-after' : 'drop-before');
-    });
-    tab.addEventListener('dragleave', ()=> tab.classList.remove('drop-before','drop-after'));
-    tab.addEventListener('drop', e=>{
-      e.preventDefault();
-      e.stopPropagation();
-      const target = tab.dataset.group;
-      if(!draggedGroup || target===draggedGroup || target==='') return;
-      const rect = tab.getBoundingClientRect();
-      const after = (e.clientX - rect.left) > rect.width/2;
-      moveSheet(draggedGroup, target, after);
-      clearDropMarks();
-      draggedGroup = null;
-      render();
-    });
-  });
-  const addBtn = $('#addSheetTab');
-  if(addBtn) addBtn.addEventListener('click', ()=>{
-    const name = prompt('Name this sheet (e.g. a campaign or list name):');
-    if(!name) return;
-    const trimmed = name.trim();
-    if(!trimmed) return;
-    if(!state.customGroups.includes(trimmed)){ state.customGroups.push(trimmed); saveCustomGroups(); }
-    setActiveGroup(trimmed);
-    render();
-  });
+  wireSheetTabs();
 
   wireLeadsGridArea();
 }
@@ -1438,6 +1653,185 @@ function wireLeadsGridArea(){
   });
 }
 
+/* ---- sheet strip: switch, reorder, rename, pin, colour ---- */
+function wireSheetTabs(){
+  /* Switching tabs deliberately does NOT re-render the whole view. It used to,
+     which quietly broke double-click-to-rename: the first click replaced the
+     tab element, so the second click landed on a different node and the
+     dblclick event never fired at all. Swapping the active class in place and
+     refreshing only the grid keeps the element identity intact. */
+  const switchGroup = (g)=>{
+    setActiveGroup(g==='__all__' ? null : g);
+    state.rowLimit = ROW_PAGE;
+    $$('#sheetTabs .sheet-tab').forEach(t=>{
+      const tg = t.dataset.group;
+      const isActive = (tg==='__all__' && state.activeGroup===null) || (tg!=='__all__' && tg===state.activeGroup);
+      t.classList.toggle('active', isActive);
+    });
+    refreshLeadsGridArea();
+    updateLeadCountLabel();
+    ensureActiveTabVisible();
+  };
+
+  $$('#sheetTabs .sheet-tab[data-group]').forEach(tab=>{
+    const g = tab.dataset.group;
+    tab.addEventListener('click', e=>{
+      if(e.target.closest('.sheet-tab-btn')) return; // the ⋯ button handles itself
+      switchGroup(g);
+    });
+    if(g!=='__all__'){
+      tab.addEventListener('dblclick', e=>{ e.stopPropagation(); renameGroup(g); });
+      tab.addEventListener('contextmenu', e=>{ e.preventDefault(); openSheetMenu(tab, g); });
+    }
+  });
+
+  $$('#sheetTabs .sheet-tab-menu').forEach(btn=> btn.addEventListener('click', e=>{
+    e.stopPropagation();
+    e.preventDefault();
+    openSheetMenu(btn.closest('.sheet-tab'), btn.dataset.menugroup);
+  }));
+
+  // Drag a tab onto another to reorder, Google Sheets style. Pinned sheets
+  // always sit ahead of unpinned ones, so a drop across that line would look
+  // like it did nothing — those drops are simply not offered.
+  let draggedGroup = null;
+  const clearDropMarks = ()=> $$('#sheetTabs .sheet-tab').forEach(t=>t.classList.remove('drop-before','drop-after'));
+  const canDrop = (target)=> !!draggedGroup && target!==draggedGroup && target!=='' && target!=='__all__'
+    && isPinned(target)===isPinned(draggedGroup);
+  $$('#sheetTabs .sheet-tab[draggable="true"]').forEach(tab=>{
+    tab.addEventListener('dragstart', e=>{
+      draggedGroup = tab.dataset.group;
+      closeSheetMenu();
+      tab.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', draggedGroup);
+    });
+    tab.addEventListener('dragend', ()=>{ tab.classList.remove('dragging'); clearDropMarks(); draggedGroup = null; });
+    tab.addEventListener('dragover', e=>{
+      if(!canDrop(tab.dataset.group)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const rect = tab.getBoundingClientRect();
+      const after = (e.clientX - rect.left) > rect.width/2;
+      clearDropMarks();
+      tab.classList.add(after ? 'drop-after' : 'drop-before');
+    });
+    tab.addEventListener('dragleave', ()=> tab.classList.remove('drop-before','drop-after'));
+    tab.addEventListener('drop', e=>{
+      e.preventDefault();
+      e.stopPropagation();
+      const target = tab.dataset.group;
+      if(!canDrop(target)) return;
+      const rect = tab.getBoundingClientRect();
+      const after = (e.clientX - rect.left) > rect.width/2;
+      moveSheet(draggedGroup, target, after);
+      clearDropMarks();
+      draggedGroup = null;
+      refreshSheetTabs();
+    });
+  });
+
+  const addBtn = $('#addSheetTab');
+  if(addBtn) addBtn.addEventListener('click', ()=>{
+    const name = prompt('Name this sheet (e.g. a campaign or list name):');
+    if(!name) return;
+    const trimmed = name.trim();
+    if(!trimmed) return;
+    if(!state.customGroups.includes(trimmed)){ state.customGroups.push(trimmed); saveCustomGroups(); }
+    setActiveGroup(trimmed);
+    render();
+    ensureActiveTabVisible();
+  });
+
+  ensureActiveTabVisible();
+}
+
+/* The options popover lives on <body>, not inside the strip: the strip is a
+   horizontal scroller with overflow hidden, so anything rendered inside it
+   would be clipped. Fixed positioning means it must close on any scroll or
+   resize rather than drift away from its tab. */
+function onSheetMenuOutside(e){
+  const menu = $('#sheetMenu');
+  if(menu && !menu.contains(e.target)) closeSheetMenu();
+}
+function onSheetMenuKey(e){ if(e.key==='Escape'){ e.stopPropagation(); closeSheetMenu(); } }
+function closeSheetMenu(){
+  const menu = $('#sheetMenu');
+  if(menu) menu.remove();
+  $$('.sheet-tab.menu-open').forEach(t=>t.classList.remove('menu-open'));
+  document.removeEventListener('mousedown', onSheetMenuOutside, true);
+  document.removeEventListener('keydown', onSheetMenuKey, true);
+  window.removeEventListener('resize', closeSheetMenu);
+  window.removeEventListener('scroll', closeSheetMenu, true);
+}
+
+function openSheetMenu(tabEl, group){
+  closeSheetMenu();
+  if(!tabEl || group===undefined || group==='' || group==='__all__') return;
+  const current = sheetColor(group);
+  const pinned = isPinned(group);
+  const count = sheetCounts().get(group) || 0;
+  const menu = document.createElement('div');
+  menu.className = 'sheet-menu';
+  menu.id = 'sheetMenu';
+  menu.innerHTML = `
+    <div class="sheet-menu-head mono">${escHtml(groupLabel(group))} · ${count.toLocaleString()}</div>
+    <div class="swatch-row">
+      <button class="swatch swatch-none ${!current?'sel':''}" data-color="" title="No colour" aria-label="No colour"></button>
+      ${SHEET_COLORS.map(c=>`<button class="swatch ${current===c.hex?'sel':''}" data-color="${c.hex}" style="--sw:${c.hex}" title="${c.name}" aria-label="${c.name}"></button>`).join('')}
+    </div>
+    <button class="sheet-menu-item" data-act="pin">
+      <svg class="mi-ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.1 1.4h3.8l-.55 4.3 2.55 2.35v1.2H8.65v5.05L8 15.6l-.65-1.3V9.25H3.1v-1.2L5.65 5.7z"/></svg>
+      ${pinned?'Unpin sheet':'Pin to front'}
+    </button>
+    <button class="sheet-menu-item" data-act="rename">
+      <svg class="mi-ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M11.6 1.6 14.4 4.4 5.8 13H3v-2.8zM2 14.2h12v1.4H2z"/></svg>
+      Rename…
+    </button>
+    <button class="sheet-menu-item danger" data-act="delete">
+      <svg class="mi-ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 1.5h4l.5 1H14v1.4H2V2.5h3.5zM3.4 5h9.2l-.7 9.1a1.4 1.4 0 0 1-1.4 1.3H5.5a1.4 1.4 0 0 1-1.4-1.3z"/></svg>
+      Delete sheet…
+    </button>
+  `;
+  document.body.appendChild(menu);
+  tabEl.classList.add('menu-open');
+
+  const r = tabEl.getBoundingClientRect();
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  const left = Math.min(Math.max(8, r.left), Math.max(8, window.innerWidth - mw - 8));
+  // The strip is docked at the bottom, so the menu opens upward unless there
+  // genuinely isn't room above it.
+  let top = r.top - mh - 8;
+  if(top < 8) top = Math.min(r.bottom + 8, Math.max(8, window.innerHeight - mh - 8));
+  menu.style.left = left+'px';
+  menu.style.top = top+'px';
+
+  menu.querySelectorAll('.swatch').forEach(sw=> sw.addEventListener('click', ()=>{
+    setSheetColor(group, sw.dataset.color);
+    closeSheetMenu();
+    refreshSheetTabs();
+    refreshLeadsGridArea();
+  }));
+  menu.querySelector('[data-act="pin"]').addEventListener('click', ()=>{
+    togglePin(group);
+    const nowPinned = isPinned(group);
+    closeSheetMenu();
+    refreshSheetTabs();
+    ensureActiveTabVisible();
+    toast(nowPinned ? `Pinned "${groupLabel(group)}".` : `Unpinned "${groupLabel(group)}".`);
+  });
+  menu.querySelector('[data-act="rename"]').addEventListener('click', ()=>{ closeSheetMenu(); renameGroup(group); });
+  menu.querySelector('[data-act="delete"]').addEventListener('click', ()=>{ closeSheetMenu(); deleteGroupFlow(group); });
+
+  // Bound on the next tick so the click that opened this doesn't close it.
+  setTimeout(()=>{
+    document.addEventListener('mousedown', onSheetMenuOutside, true);
+    document.addEventListener('keydown', onSheetMenuKey, true);
+    window.addEventListener('resize', closeSheetMenu);
+    window.addEventListener('scroll', closeSheetMenu, true);
+  }, 0);
+}
+
 async function renameGroup(oldName){
   const newName = prompt('Rename this sheet:', oldName);
   if(newName==null) return;
@@ -1445,11 +1839,10 @@ async function renameGroup(oldName){
   if(!trimmed || trimmed===oldName) return;
   const collides = allGroups().some(g=> g!==oldName && g===trimmed);
   if(collides && !confirm(`A sheet named "${trimmed}" already exists. Merge "${oldName}" into it?`)) return;
-  const idx = state.customGroups.indexOf(oldName);
-  if(idx>-1){ state.customGroups[idx] = trimmed; saveCustomGroups(); }
-  const orderIdx = state.sheetOrder.indexOf(oldName);
-  if(orderIdx>-1){ state.sheetOrder[orderIdx] = trimmed; saveSheetOrder(); }
   toast('Renaming…');
+  // The database move happens first. Renaming the local tab bookkeeping up
+  // front meant a failed rename left a phantom tab under the new name with
+  // no leads behind it; now nothing local changes unless the write landed.
   let moved = 0;
   try{
     moved = await db.moveSheetLeads(oldName, trimmed);
@@ -1458,6 +1851,19 @@ async function renameGroup(oldName){
     toast('Rename failed — nothing was changed. Check console.');
     return;
   }
+  const idx = state.customGroups.indexOf(oldName);
+  if(idx>-1){
+    if(state.customGroups.includes(trimmed)) state.customGroups.splice(idx,1);
+    else state.customGroups[idx] = trimmed;
+    saveCustomGroups();
+  }
+  const orderIdx = state.sheetOrder.indexOf(oldName);
+  if(orderIdx>-1){
+    if(state.sheetOrder.includes(trimmed)) state.sheetOrder.splice(orderIdx,1);
+    else state.sheetOrder[orderIdx] = trimmed;
+    saveSheetOrder();
+  }
+  carrySheetPrefs(oldName, trimmed);
   // Re-read from the database rather than patching memory, so what's on
   // screen is what's actually stored — including any rows this browser
   // hadn't loaded when the rename started.
@@ -1472,6 +1878,7 @@ function removeGroupTab(name){
   if(oi>-1){ state.sheetOrder.splice(oi,1); saveSheetOrder(); }
   const idx = state.customGroups.indexOf(name);
   if(idx>-1){ state.customGroups.splice(idx,1); saveCustomGroups(); }
+  dropSheetPrefs(name);
   if(state.activeGroup===name) setActiveGroup(null);
 }
 
@@ -1896,6 +2303,186 @@ async function openLeadDetail(id){
   });
 }
 
+/* ============================= PROGRESS OVERLAY =============================
+   Imports used to show a bar that never moved: the duplicate scan ran as one
+   blocking loop, so the browser never got a frame in which to paint an
+   update, and the save step showed nothing at all. Now every long stretch is
+   chunked and yields between chunks through a MessageChannel — unlike
+   setTimeout, that is not clamped to ~1s in a backgrounded tab, so the import
+   stays fast even if you switch away while it runs. */
+const _yieldChan = (typeof MessageChannel !== 'undefined') ? new MessageChannel() : null;
+const _yieldQueue = [];
+if(_yieldChan) _yieldChan.port1.onmessage = ()=>{ const r = _yieldQueue.shift(); if(r) r(); };
+function yieldToPaint(){
+  return new Promise(res=>{
+    if(_yieldChan){ _yieldQueue.push(res); _yieldChan.port2.postMessage(0); }
+    else setTimeout(res, 0);
+  });
+}
+
+const PROGRESS_STEPS = [
+  {key:'read', label:'Read'},
+  {key:'scan', label:'Check'},
+  {key:'save', label:'Save'},
+];
+
+function fmtClock(ms){
+  const s = Math.max(0, Math.round(ms/1000));
+  return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+}
+/* Deliberately vague wording. An estimate built from a few hundred rows of
+   history is worth "about 8s", never "7.4s". */
+function fmtRemaining(ms){
+  if(ms==null) return 'estimating…';
+  if(ms < 1500) return 'almost done';
+  const secs = Math.ceil(ms/1000);
+  if(secs < 60) return `about ${secs}s left`;
+  const m = Math.floor(secs/60), r = secs%60;
+  return r ? `about ${m}m ${r}s left` : `about ${m}m left`;
+}
+
+let _progToken = 0;
+/* One overlay, reused across the import's phases. Every setter writes
+   straight into existing nodes rather than re-rendering, so nothing flickers
+   and the ETA can update several times a second without cost. */
+function startProgress(){
+  const host = $('#progressHost');
+  const token = ++_progToken;
+  host.dataset.token = String(token);
+  host.innerHTML = `
+    <div class="prog-overlay" role="dialog" aria-modal="true" aria-live="polite">
+      <div class="prog-card" id="progCard">
+        <div class="prog-steps">
+          ${PROGRESS_STEPS.map(st=>`<span class="prog-step" data-step="${st.key}"><i></i>${st.label}</span>`).join('')}
+        </div>
+        <h2 class="prog-title" id="progTitle">Working…</h2>
+        <p class="prog-sub" id="progSub"></p>
+        <div class="prog-readout">
+          <div class="prog-pct" id="progPct">0<span>%</span></div>
+          <div class="prog-eta" id="progEta">estimating…</div>
+        </div>
+        <div class="prog-track" id="progTrack"><div class="prog-fill" id="progFill" style="width:0%"></div></div>
+        <div class="prog-foot"><span class="mono" id="progCount"></span><span class="mono" id="progElapsed">0:00</span></div>
+        <p class="prog-note" id="progNote"></p>
+        <button class="prog-hide" id="progHide" hidden>Hide this — the import keeps running</button>
+      </div>
+    </div>`;
+
+  const el = {
+    card: $('#progCard'), title: $('#progTitle'), sub: $('#progSub'),
+    pct: $('#progPct'), eta: $('#progEta'), track: $('#progTrack'), fill: $('#progFill'),
+    count: $('#progCount'), elapsed: $('#progElapsed'), note: $('#progNote'), hide: $('#progHide'),
+  };
+  /* An escape hatch, offered only once something has clearly taken longer
+     than expected: it dismisses the overlay without cancelling anything, so
+     a stalled network can never leave you staring at a box you can't close.
+     It never appears on a fast import, where it would only be noise. */
+  el.hide.addEventListener('click', ()=>{ api.close(); toast('Import still running in the background.'); });
+  const hideTimer = setTimeout(()=>{ if(!closed && !finished) el.hide.hidden = false; }, 12000);
+
+  let stepKey = null;
+  let total = null;      // null == indeterminate
+  let done = 0;
+  let stepStart = performance.now();
+  const overallStart = stepStart;
+  let lastPaint = 0;
+  let closed = false;
+  let finished = false;
+
+  const timer = setInterval(()=>{ el.elapsed.textContent = fmtClock(performance.now()-overallStart); }, 500);
+
+  function paint(force){
+    if(closed) return;
+    const now = performance.now();
+    if(!force && now - lastPaint < 90) return;
+    lastPaint = now;
+    el.elapsed.textContent = fmtClock(now - overallStart);
+    if(total==null){
+      el.track.classList.add('indet');
+      el.pct.innerHTML = '&nbsp;';
+      el.count.textContent = '';
+      if(!finished) el.eta.textContent = 'a moment…';
+      return;
+    }
+    el.track.classList.remove('indet');
+    const frac = total > 0 ? Math.min(1, done/total) : 1;
+    const pct = Math.floor(frac*100);
+    el.pct.innerHTML = `${pct}<span>%</span>`;
+    el.fill.style.width = (frac*100).toFixed(1)+'%';
+    el.count.textContent = `${done.toLocaleString()} / ${total.toLocaleString()}`;
+    if(finished) return;
+    const elapsed = now - stepStart;
+    // Below a small sample the rate is mostly noise, so say so rather than
+    // showing a number that swings from "2s" to "4m" between frames.
+    if(done > 0 && elapsed > 600 && done < total){
+      el.eta.textContent = fmtRemaining((total - done) * (elapsed/done));
+    } else if(done >= total){
+      el.eta.textContent = 'almost done';
+    } else {
+      el.eta.textContent = 'estimating…';
+    }
+  }
+
+  const api = {
+    /* Moves to a named phase. total=null keeps the bar indeterminate for work
+       that genuinely can't be counted (a single round trip to the database). */
+    step(key, title, sub, totalUnits){
+      if(closed) return api;
+      stepKey = key;
+      total = (totalUnits==null) ? null : Math.max(0, totalUnits);
+      done = 0;
+      stepStart = performance.now();
+      finished = false;
+      el.title.textContent = title;
+      el.sub.textContent = sub || '';
+      el.note.textContent = '';
+      el.fill.style.width = '0%';
+      const order = PROGRESS_STEPS.findIndex(st=>st.key===key);
+      PROGRESS_STEPS.forEach((st,i)=>{
+        const node = host.querySelector(`.prog-step[data-step="${st.key}"]`);
+        if(!node) return;
+        node.classList.toggle('now', i===order);
+        node.classList.toggle('done', order>-1 && i<order);
+      });
+      paint(true);
+      return api;
+    },
+    tick(n=1){ if(closed) return api; done += n; paint(false); return api; },
+    set(v){ if(closed) return api; done = v; paint(false); return api; },
+    setTotal(v){ if(closed) return api; total = (v==null?null:Math.max(0,v)); paint(true); return api; },
+    note(text){ if(closed) return api; el.note.textContent = text || ''; return api; },
+    /* Success state: everything filled and green, held briefly so the finish
+       is actually seen rather than the overlay vanishing mid-animation. */
+    async finish(title, sub, holdMs=850){
+      if(closed) return;
+      finished = true;
+      if(total==null) total = 1;
+      done = total;
+      el.card.classList.add('is-done');
+      el.hide.hidden = true;
+      el.title.textContent = title;
+      el.sub.textContent = sub || '';
+      el.eta.textContent = 'done';
+      el.note.textContent = '';
+      host.querySelectorAll('.prog-step').forEach(n=>{ n.classList.remove('now'); n.classList.add('done'); });
+      paint(true);
+      await new Promise(r=> setTimeout(r, holdMs));
+      api.close();
+    },
+    close(){
+      if(closed) return;
+      closed = true;
+      clearInterval(timer);
+      clearTimeout(hideTimer);
+      // Only clear if a newer overlay hasn't already taken over the host.
+      if(host.dataset.token === String(token)) host.innerHTML = '';
+    },
+    get isOpen(){ return !closed; },
+  };
+  paint(true);
+  return api;
+}
+
 /* ============================= IMPORT FLOW ============================= */
 const IMPORT_FIELDS = [
   {key:'company', label:'Company name', required:false, hints:['company','organisation','organization','business','account']},
@@ -1936,19 +2523,32 @@ async function handleFiles(fileList){
   const files = Array.from(fileList);
   if(!files.length) return;
   importQueue = [];
-  for(const file of files){
-    try{
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, {type:'array'});
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(sheet, {header:1, defval:''});
-      if(!rows.length) continue;
-      const headers = rows[0].map(h=>String(h||'').trim());
-      const dataRows = rows.slice(1).filter(r=> r.some(c=>String(c||'').trim()!==''));
-      importQueue.push({ fileName: file.name, headers, dataRows });
-    }catch(e){ console.error(e); toast(`Could not read ${file.name}`); }
-  }
+  // Parsing a big workbook blocks the thread outright, so the file's name is
+  // painted before its parse starts rather than after — otherwise the label
+  // would always be one file behind whatever is actually being read.
+  const p = startProgress();
+  p.step('read', 'Reading your files', `${files.length} file${files.length===1?'':'s'} to unpack.`, files.length);
+  try{
+    for(const file of files){
+      p.note(file.name);
+      await yieldToPaint();
+      try{
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, {type:'array'});
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, {header:1, defval:''});
+        if(rows.length){
+          const headers = rows[0].map(h=>String(h||'').trim());
+          const dataRows = rows.slice(1).filter(r=> r.some(c=>String(c||'').trim()!==''));
+          importQueue.push({ fileName: file.name, headers, dataRows });
+        }
+      }catch(e){ console.error(e); toast(`Could not read ${file.name}`); }
+      p.tick();
+      await yieldToPaint();
+    }
+  } finally { p.close(); }
   if(importQueue.length) mapNextFile();
+  else toast('Nothing readable in those files.');
 }
 
 function headerSignature(headers){ return headers.map(h=>h.toLowerCase().trim()).sort().join('|'); }
@@ -2007,21 +2607,9 @@ function mapNextFile(){
   });
 }
 
-function showImportProgress(done, total){
-  const pct = total ? Math.round(done/total*100) : 0;
-  const html = `
-    <div class="modal-head"><h2>Checking for duplicates…</h2></div>
-    <p style="color:var(--text-2)">Comparing ${total} row${total===1?'':'s'} against your outreach history${total>300?' — large imports take a few seconds':''}.</p>
-    <div style="height:8px;background:var(--paper-deep);border-radius:99px;overflow:hidden;margin-top:1rem">
-      <div style="height:100%;width:${pct}%;background:var(--accent-deep);border-radius:99px;transition:width .15s ease"></div>
-    </div>
-    <p class="mono" style="margin-top:.6rem;color:var(--text-3)">${done} / ${total}</p>
-  `;
-  openModal(html);
-}
-
 async function buildPreview(){
   importPreviewRows = [];
+  importNotesById = {};
   const dedupIdx = buildDedupIndex(state.leads);
 
   const allRows = [];
@@ -2048,57 +2636,119 @@ async function buildPreview(){
     });
   }
 
-  // The indexed matcher below is fast — benchmarked at ~130ms for 1800+ rows
-  // in-browser, not assumed — so this runs to completion in one synchronous
-  // pass rather than yielding mid-loop with setTimeout. That matters: a
-  // backgrounded tab throttles queued timers hard (sometimes for many
-  // seconds per timer), which would turn "yield to stay responsive" into
-  // "the import silently stalls if you switch tabs while it runs" — worse
-  // than just finishing fast without ever giving up the thread.
-  showImportProgress(0, allRows.length);
-  for(let i=0;i<allRows.length;i++){
-    const candidate = allRows[i];
-    const matches = findMatches(candidate, dedupIdx);
-    importPreviewRows.push({ candidate, matches, action: matches.length ? 'skip' : 'add', mergeTargetId: matches.length ? matches[0].lead.id : null });
-    // Rows in this batch only join the protected set if the sheet itself
-    // marked them Won/Dead/Warm/In Progress. Plain prospects (Not Now) stay
-    // unprotected, so repeats within one import are allowed through.
-    if(!matches.length && PROTECTED_STATUSES.has(candidate.status)) indexAdd(dedupIdx, candidate);
+  // The indexed matcher is fast — benchmarked at ~130ms for 1800+ rows
+  // in-browser, not assumed — but it still has to hand the thread back
+  // occasionally or the progress bar can never repaint. The yield goes
+  // through a MessageChannel rather than a timer, so a backgrounded tab
+  // doesn't throttle the scan to a crawl.
+  const p = startProgress();
+  p.step('scan', 'Checking for duplicates',
+    `Comparing ${allRows.length.toLocaleString()} row${allRows.length===1?'':'s'} against your outreach history.`,
+    allRows.length);
+  const SCAN_CHUNK = 120;
+  try{
+    for(let i=0;i<allRows.length;i++){
+      const candidate = allRows[i];
+      const matches = findMatches(candidate, dedupIdx);
+      importPreviewRows.push({ candidate, matches, action: matches.length ? 'skip' : 'add', mergeTargetId: matches.length ? matches[0].lead.id : null });
+      // Rows in this batch only join the protected set if the sheet itself
+      // marked them Won/Dead/Warm/In Progress. Plain prospects (Not Now) stay
+      // unprotected, so repeats within one import are allowed through.
+      if(!matches.length && PROTECTED_STATUSES.has(candidate.status)) indexAdd(dedupIdx, candidate);
+      if((i+1) % SCAN_CHUNK === 0){ p.set(i+1); await yieldToPaint(); }
+    }
+    p.set(allRows.length);
+    // Laying out a few thousand preview rows is itself a visible pause, so it
+    // gets its own honest phase rather than a frozen 100% bar.
+    p.step('scan', 'Building the review list', 'Nearly there.', null);
+    await yieldToPaint();
+    await renderPreview();
+  } finally { p.close(); }
+}
+
+/* Cached so the two bulk buttons can re-render the list instantly instead of
+   re-querying notes for every matched lead each time. */
+let importNotesById = {};
+
+/* Only the first slice of rows is drawn. Each preview row carries a <select>,
+   so a 2,000-row import meant 2,000 live controls: seconds of layout before
+   anything appeared, on a screen whose whole job is to be looked at quickly.
+   Duplicates come first in that slice because they're the rows that actually
+   need a decision; everything past the cut keeps its default action, and the
+   summary line spells out exactly what that means. */
+const PREVIEW_RENDER_CAP = 300;
+
+function previewCounts(){
+  let add=0, skip=0, merge=0;
+  for(const r of importPreviewRows){
+    if(r.action==='add') add++;
+    else if(r.action==='merge') merge++;
+    else skip++;
   }
-  renderPreview();
+  return {add, skip, merge};
+}
+function previewSummaryText(){
+  const {add, skip, merge} = previewCounts();
+  const bits = [`add ${add.toLocaleString()}`];
+  if(merge) bits.push(`merge ${merge.toLocaleString()}`);
+  bits.push(`skip ${skip.toLocaleString()}`);
+  return `On commit: ${bits.join(' · ')}`;
+}
+function updatePreviewSummary(){
+  const el = $('#previewSummaryLine');
+  if(el) el.textContent = previewSummaryText();
 }
 
 async function renderPreview(){
   const dupCount = importPreviewRows.filter(r=>r.matches.length).length;
   const newCount = importPreviewRows.length - dupCount;
+
+  // Duplicates first, then new rows, then cut to the render cap.
+  const order = [];
+  importPreviewRows.forEach((r,i)=>{ if(r.matches.length) order.push(i); });
+  importPreviewRows.forEach((r,i)=>{ if(!r.matches.length) order.push(i); });
+  const shown = order.slice(0, PREVIEW_RENDER_CAP);
+  const hidden = order.length - shown.length;
+
   // Matches can point at another row earlier in this same import batch that
   // hasn't been saved yet (no id), not just existing DB leads — filter those
   // out here, since fetching "notes for lead id undefined" fails outright
   // against Supabase (invalid uuid) and would otherwise abort this whole
-  // render before the preview ever appears.
-  const matchedIds = [...new Set(importPreviewRows.flatMap(r=>r.matches.map(m=>m.lead.id)).filter(Boolean))];
-  let notesById = {};
-  if(matchedIds.length){
-    const notes = await db.fetchNotes(matchedIds);
-    notes.forEach(n=>{ if(!notesById[n.lead_id]) notesById[n.lead_id] = n; });
+  // render before the preview ever appears. Only the rows actually drawn are
+  // looked up, so a large import doesn't fan out into dozens of requests.
+  const needed = [...new Set(shown
+    .map(i=> importPreviewRows[i].matches[0])
+    .filter(Boolean)
+    .map(m=> m.lead.id)
+    .filter(id=> id && !(id in importNotesById)))];
+  if(needed.length){
+    try{
+      const notes = await db.fetchNotes(needed);
+      needed.forEach(id=>{ importNotesById[id] = null; });
+      notes.forEach(n=>{ if(!importNotesById[n.lead_id]) importNotesById[n.lead_id] = n; });
+    }catch(e){ console.error('Could not load notes for the preview', e); }
   }
+
   const html = `
     <div class="modal-head"><h2>Review import</h2><button class="modal-close" id="closePrev">&times;</button></div>
     <div class="preview-summary">
-      <div><div class="stat-num">${importPreviewRows.length}</div><div class="stat-label">Rows found</div></div>
-      <div><div class="stat-num" style="color:var(--green)">${newCount}</div><div class="stat-label">New</div></div>
-      <div><div class="stat-num" style="color:var(--amber)">${dupCount}</div><div class="stat-label">Possible duplicates</div></div>
+      <div><div class="stat-num">${importPreviewRows.length.toLocaleString()}</div><div class="stat-label">Rows found</div></div>
+      <div><div class="stat-num" style="color:var(--green)">${newCount.toLocaleString()}</div><div class="stat-label">New</div></div>
+      <div><div class="stat-num" style="color:var(--amber)">${dupCount.toLocaleString()}</div><div class="stat-label">Possible duplicates</div></div>
     </div>
     <div class="preview-toolbar">
       <button class="btn btn-ghost btn-sm" id="skipAllDup">Skip all duplicates</button>
       <button class="btn btn-ghost btn-sm" id="addAllDup">Add all as new</button>
+      <span id="previewSummaryLine" style="margin-left:auto;align-self:center;color:var(--text-2);font-size:.82rem">${previewSummaryText()}</span>
     </div>
+    ${hidden>0 ? `<div class="warn-banner" style="margin-bottom:.8rem">Showing the first <b>${shown.length.toLocaleString()}</b> of ${order.length.toLocaleString()} rows — possible duplicates first. The other ${hidden.toLocaleString()} keep their default action (new rows are added, duplicates are skipped); the two buttons above change every row at once.</div>` : ''}
     <div class="preview-scroll">
-      ${importPreviewRows.map((r,i)=>{
+      ${shown.map(i=>{
+        const r = importPreviewRows[i];
         const c = r.candidate;
         const isDup = r.matches.length>0;
         const best = r.matches[0];
-        const lastNote = best ? notesById[best.lead.id] : null;
+        const lastNote = best && best.lead.id ? importNotesById[best.lead.id] : null;
         return `<div class="prow ${isDup?'dup':''}">
           <div>
             <div class="td-company">${escHtml(leadDisplayName(c))}</div>
@@ -2110,10 +2760,10 @@ async function renderPreview(){
           <div>
             ${isDup ? `<div class="prow-match">Matches <b>${escHtml(leadDisplayName(best.lead))}</b>${best.lead.id?` (${best.lead.status})`:' (also new in this import)'}${lastNote?`<br>Last note: "${escHtml(lastNote.note.slice(0,80))}${lastNote.note.length>80?'…':''}"`:''}</div>
             <select data-idx="${i}" class="rowAction">
-              <option value="skip" selected>Skip</option>
-              <option value="add">Add as new</option>
-              ${best.lead.id?'<option value="merge">Merge into existing</option>':''}
-            </select>` : `<select data-idx="${i}" class="rowAction"><option value="add" selected>Add as new</option><option value="skip">Skip</option></select>`}
+              <option value="skip" ${r.action==='skip'?'selected':''}>Skip</option>
+              <option value="add" ${r.action==='add'?'selected':''}>Add as new</option>
+              ${best.lead.id?`<option value="merge" ${r.action==='merge'?'selected':''}>Merge into existing</option>`:''}
+            </select>` : `<select data-idx="${i}" class="rowAction"><option value="add" ${r.action!=='skip'?'selected':''}>Add as new</option><option value="skip" ${r.action==='skip'?'selected':''}>Skip</option></select>`}
           </div>
         </div>`;
       }).join('')}
@@ -2128,6 +2778,7 @@ async function renderPreview(){
   $('#cancelPrev').addEventListener('click', ()=>{ importQueue=[]; closeModal(); });
   $$('.rowAction').forEach(sel=> sel.addEventListener('change', e=>{
     importPreviewRows[+e.target.dataset.idx].action = e.target.value;
+    updatePreviewSummary();
   }));
   $('#skipAllDup').addEventListener('click', ()=>{
     importPreviewRows.forEach(r=>{ if(r.matches.length) r.action='skip'; });
@@ -2147,6 +2798,21 @@ async function commitImport(){
     if(r.action==='add') toInsert.push(r);
     else if(r.action==='merge') toMerge.push(r);
   });
+  if(!toInsert.length && !toMerge.length){
+    toast('Nothing selected to import.');
+    return;
+  }
+
+  // Every unit of work the save has to get through, counted up front, so the
+  // bar and the estimate describe the whole job rather than one part of it.
+  const noteCount = toInsert.filter(r=>r.candidate._importNote).length;
+  const totalUnits = toInsert.length + noteCount + toMerge.length;
+  const p = startProgress();
+  const parts = [];
+  if(toInsert.length) parts.push(`${toInsert.length.toLocaleString()} new lead${toInsert.length===1?'':'s'}`);
+  if(toMerge.length) parts.push(`${toMerge.length.toLocaleString()} merge${toMerge.length===1?'':'s'}`);
+  p.step('save', 'Saving to your database', `${parts.join(' and ')}. Keep this tab open.`, Math.max(1, totalUnits));
+
   try{
     if(toInsert.length){
       const rows = toInsert.map(r=>({
@@ -2159,17 +2825,22 @@ async function commitImport(){
         source_list: r.candidate.source_list,
         date_added: todayISO(),
       }));
-      const inserted = await db.insertLeads(rows);
+      p.note('Writing leads…');
+      const inserted = await db.insertLeads(rows, n=>{ p.tick(n); });
       // Notes are secondary to the leads themselves — a note failing to save
       // shouldn't make an otherwise-successful import report as "failed".
+      let noteDone = 0;
       for(let i=0;i<inserted.length;i++){
         const note = toInsert[i].candidate._importNote;
-        if(note){
-          try{ await db.insertNote(inserted[i].id, note); }
-          catch(e){ console.error('Note insert failed for', inserted[i].id, e); }
-        }
+        if(!note) continue;
+        try{ await db.insertNote(inserted[i].id, note); }
+        catch(e){ console.error('Note insert failed for', inserted[i].id, e); }
+        noteDone++;
+        p.tick();
+        if(noteDone % 10 === 0){ p.note(`Attaching notes — ${noteDone.toLocaleString()} of ${noteCount.toLocaleString()}`); await yieldToPaint(); }
       }
     }
+    let mergeDone = 0;
     for(const r of toMerge){
       try{
         const target = r.matches.find(m=>m.lead.id===r.mergeTargetId)?.lead || r.matches[0].lead;
@@ -2182,27 +2853,50 @@ async function commitImport(){
           : `Merged duplicate from import: ${r.candidate.source_list}`;
         await db.insertNote(target.id, noteText);
       }catch(e){ console.error('Merge failed for row', r.candidate.company_name, e); }
+      mergeDone++;
+      p.tick();
+      if(mergeDone % 10 === 0){ p.note(`Merging — ${mergeDone.toLocaleString()} of ${toMerge.length.toLocaleString()}`); await yieldToPaint(); }
     }
+
+    // Only sheets that actually put rows in get a campaign row; counting every
+    // previewed row logged skipped duplicates as if they'd been mailed.
     try{
       const bySource = {};
       importPreviewRows.forEach(r=>{
+        if(r.action!=='add') return;
         const src = r.candidate.source_list || 'Unlabeled';
         bySource[src] = (bySource[src]||0) + 1;
       });
-      for(const [name, count] of Object.entries(bySource)){
-        const row = await db.insertCampaign({ name, date: todayISO(), mail_count: count, status:'Completed', response:'' });
-        state.campaigns.unshift(row);
+      const entries = Object.entries(bySource);
+      if(entries.length){
+        p.note('Logging the campaign…');
+        for(const [name, count] of entries){
+          const row = await db.insertCampaign({ name, date: todayISO(), mail_count: count, status:'Completed', response:'' });
+          state.campaigns.unshift(row);
+        }
       }
     }catch(e){ console.error('Campaign log failed', e); }
+
+    p.step('save', 'Refreshing your leads', 'Reading everything back so what you see matches what was saved.', null);
+    await yieldToPaint();
     await refreshLeads();
     state.notesCache.clear();
+    importNotesById = {};
     closeModal();
-    const importedSources = [...new Set(importPreviewRows.map(r=>r.candidate.source_list).filter(Boolean))];
+    const importedSources = [...new Set(toInsert.map(r=>r.candidate.source_list).filter(Boolean))];
     if(importedSources.length===1) setActiveGroup(importedSources[0]);
     importQueue = [];
-    toast(`Imported ${toInsert.length} new, merged ${toMerge.length}.`);
     setView('leads');
-  }catch(e){ console.error(e); toast('Import failed — check console.'); }
+    await p.finish('Import complete',
+      `${toInsert.length.toLocaleString()} added${toMerge.length?`, ${toMerge.length.toLocaleString()} merged`:''}.`);
+    toast(`Imported ${toInsert.length} new, merged ${toMerge.length}.`);
+  }catch(e){
+    console.error(e);
+    p.close();
+    toast('Import failed — check console.');
+  }finally{
+    p.close();
+  }
 }
 </script>
 </body>
