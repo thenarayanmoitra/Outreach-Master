@@ -439,6 +439,9 @@ select.filter-select{
 .prow{padding:.8rem .9rem;border-bottom:1px solid var(--sep);display:grid;grid-template-columns:1.4fr 1fr 1.6fr;gap:.75rem;align-items:start}
 .prow:last-child{border-bottom:none}
 .prow.dup{background:rgba(217,138,43,.06)}
+.prow.blocked{background:rgba(178,58,46,.07);opacity:.85}
+.prow.blocked .td-company{text-decoration:line-through;text-decoration-color:rgba(178,58,46,.5)}
+.blocked-note{margin-top:.35rem;font-size:.75rem;font-weight:700;color:var(--red);font-family:'Space Mono',monospace;text-transform:uppercase;letter-spacing:.1em}
 .prow-reasons{margin-top:.3rem;display:flex;gap:.3rem;flex-wrap:wrap}
 .reason-chip{font-size:.68rem;font-family:'Space Mono',monospace;background:var(--parchment);color:var(--ink-deep);padding:.15rem .4rem;border-radius:3px}
 .prow-match{font-size:.78rem;color:var(--text-2)}
@@ -752,18 +755,43 @@ function nameTokens(s){
 }
 function createDedupIndex(){
   return {
+    // Fuzzy maps — engaged leads only (see buildDedupIndex).
     byEmail: new Map(),
     byDomain: new Map(),
     byCleanExact: new Map(),
     byLoose: new Map(),
     byCleanPrefix: new Map(),
     byNameToken: new Map(),
+    // Exact maps — EVERY lead, whatever its status. These are what make a
+    // second copy of a lead impossible rather than merely flagged.
+    byEmailAll: new Map(),
+    byIdentityAll: new Map(),
   };
+}
+/* The identity of a lead with no email: its company and contact together,
+   punctuation and case stripped. Returns '' when there's nothing to key on,
+   and an empty key is never indexed or matched. */
+function identityKey(record){
+  const c = normLoose(record.company_name), p = normLoose(record.contact_person);
+  return (c || p) ? c+'|'+p : '';
 }
 function idxPush(map, key, val){
   if(!key) return;
   if(!map.has(key)) map.set(key, []);
   map.get(key).push(val);
+}
+/* Exact-identity indexing, applied to every lead with no status test. Kept
+   separate from indexAdd so the wide fuzzy matching stays scoped to engaged
+   leads — running that over the whole table would flag most of an import as
+   a duplicate, because a shared first name or a shared @gmail.com counts as
+   a reason there. */
+function indexAddExact(idx, record){
+  const email = (record.email||'').toLowerCase().trim();
+  if(email) idxPush(idx.byEmailAll, email, record);
+  else {
+    const key = identityKey(record);
+    if(key) idxPush(idx.byIdentityAll, key, record);
+  }
 }
 function indexAdd(idx, record){
   const email = (record.email||'').toLowerCase().trim();
@@ -782,12 +810,39 @@ function indexAdd(idx, record){
 function buildDedupIndex(records){
   const idx = createDedupIndex();
   for(const r of records){
-    if(PROTECTED_STATUSES.has(r.status)) indexAdd(idx, r);
+    indexAddExact(idx, r);                                   // every lead
+    if(PROTECTED_STATUSES.has(r.status)) indexAdd(idx, r);   // engaged leads also get fuzzy matching
   }
   return idx;
 }
 
+/* A hard match means this exact lead is already in the database — same email,
+   or (for rows with no email) same company and contact. Those are never
+   importable again, whatever their status and whatever the reviewer clicks.
+   Everything else stays a soft "possible duplicate" for you to judge. */
+function findHardMatch(candidate, idx){
+  const email = (candidate.email||'').toLowerCase().trim();
+  if(email){
+    const hit = idx.byEmailAll.get(email);
+    if(hit) for(const lead of hit){ if(!(candidate.id && lead.id===candidate.id)) return {lead, reason:'same email'}; }
+    return null;
+  }
+  const key = identityKey(candidate);
+  if(!key) return null;
+  const hit = idx.byIdentityAll.get(key);
+  if(hit) for(const lead of hit){ if(!(candidate.id && lead.id===candidate.id)) return {lead, reason:'same company and contact'}; }
+  return null;
+}
+
 function findMatches(candidate, idx){
+  const hard = findHardMatch(candidate, idx);
+  if(hard){
+    // No point running the fuzzy pass: this row is blocked either way, and
+    // skipping it keeps big imports fast.
+    // Just the reason. The "already in your database" framing is supplied by
+    // whichever surface shows it, so it doesn't get said twice.
+    return [{ lead: hard.lead, reasons:[hard.reason], hard:true }];
+  }
   const found = new Map(); // lead -> Set(reasons)
   const addReason = (lead, reason)=>{
     if(candidate.id && lead.id===candidate.id) return;
@@ -838,10 +893,11 @@ function findMatches(candidate, idx){
     if(idx.byNameToken.has(t)) for(const r of idx.byNameToken.get(t)) addReason(r,'same contact name');
   }
 
-  const matches = [...found.entries()].map(([lead,reasonSet])=>({lead, reasons:[...reasonSet]}));
+  const matches = [...found.entries()].map(([lead,reasonSet])=>({lead, reasons:[...reasonSet], hard:false}));
   matches.sort((a,b)=> scoreReasons(b.reasons)-scoreReasons(a.reasons));
   return matches;
 }
+function isBlocked(row){ return !!(row.matches && row.matches[0] && row.matches[0].hard); }
 
 /* ============================= DATA LAYER ============================= */
 let sbClient = null;
@@ -1412,7 +1468,12 @@ function renderLeadsView(){
 const ROW_PAGE = 300;
 function renderLeadsGridArea(){
   const allRows = filteredSortedLeads();
-  if(state.rowLimit > allRows.length + ROW_PAGE) state.rowLimit = ROW_PAGE;
+  // Narrowing the view snaps the window back to one page — otherwise a
+  // filter that cuts 4,000 rows to 40 would leave the limit stranded high.
+  // Number.isFinite matters: "Show all" sets the limit to Infinity, which is
+  // greater than every length, so without this the button reset itself to
+  // 300 rows and appeared to do nothing at all.
+  if(Number.isFinite(state.rowLimit) && state.rowLimit > allRows.length + ROW_PAGE) state.rowLimit = ROW_PAGE;
   const rows = allRows.slice(0, state.rowLimit);
   const hiddenCount = allRows.length - rows.length;
   const groups = allGroups();
@@ -1606,7 +1667,21 @@ function wireLeadsGridArea(){
   }));
   $('#bulkClear')?.addEventListener('click', ()=>{ state.selectedIds.clear(); refreshLeadsGridArea(); });
   $('#loadMoreRows')?.addEventListener('click', ()=>{ state.rowLimit += ROW_PAGE; refreshLeadsGridArea(); });
-  $('#loadAllRows')?.addEventListener('click', ()=>{ state.rowLimit = Infinity; refreshLeadsGridArea(); });
+  /* Every row is ~23 live DOM nodes, so "show all" is genuinely expensive at
+     scale — measured: 10,000 rows takes ~1s and 230,000 nodes; 25,000 takes
+     ~4s and 575,000. It stays available, because sometimes you do want the
+     whole sheet, but past a few thousand it says what it's about to cost.
+     Export already covers the full filtered set without drawing anything. */
+  const SHOW_ALL_WARN = 5000;
+  $('#loadAllRows')?.addEventListener('click', ()=>{
+    const total = filteredSortedLeads().length;
+    if(total > SHOW_ALL_WARN && !confirm(
+      `Drawing ${total.toLocaleString()} rows at once will freeze the page for a few seconds and use a lot of memory.\n\n`
+      + `Searching or filtering first is usually faster, and Export CSV already covers everything shown here without drawing it.\n\nShow all ${total.toLocaleString()} anyway?`
+    )) return;
+    state.rowLimit = Infinity;
+    refreshLeadsGridArea();
+  });
   $('#bulkExport')?.addEventListener('click', ()=>{
     const rows = state.leads.filter(l=>state.selectedIds.has(l.id));
     exportLeadsToCSV(rows, 'selected');
@@ -2237,18 +2312,30 @@ async function openLeadDetail(id){
   $('#cancelLead').addEventListener('click', closeModal);
   $('#btnLogToday').addEventListener('click', ()=>{ $('#f_lastcontacted').value = todayISO(); });
 
+  let addBlocked = false;
   if(isNew){
     const dupIndex = buildDedupIndex(state.leads);
     const checkDup = debounce(()=>{
       const company = $('#f_company').value.trim();
       const email = $('#f_email').value.trim();
       const contact = $('#f_contact').value.trim();
+      addBlocked = false;
+      const saveBtn = $('#saveLead');
+      if(saveBtn){ saveBtn.disabled = false; saveBtn.textContent = 'Add lead'; }
       if(!company && !email && !contact){ $('#dupWarning').innerHTML=''; return; }
       const candidate = { company_name: company, company_name_clean: cleanCompany(company), email, email_domain: emailDomain(email), contact_person: contact };
       const matches = findMatches(candidate, dupIndex);
       if(matches.length){
         const top = matches[0];
-        $('#dupWarning').innerHTML = `<div class="warn-banner"><b>Possible duplicate</b> — ${top.reasons.join(', ')}. Matches "${escHtml(leadDisplayName(top.lead))}" (${top.lead.status}).</div>`;
+        if(top.hard){
+          // Same rule as the importer: already in the database means it
+          // cannot go in a second time, client or not.
+          addBlocked = true;
+          if(saveBtn){ saveBtn.disabled = true; saveBtn.textContent = 'Already in database'; }
+          $('#dupWarning').innerHTML = `<div class="warn-banner" style="background:rgba(178,58,46,.08);border-color:rgba(178,58,46,.3);color:var(--red)"><b>Already in your database</b> — ${escHtml(top.reasons.join(', '))}. Saved as "${escHtml(leadDisplayName(top.lead))}" (${top.lead.status}). This one can't be added again; open the existing record instead.</div>`;
+        } else {
+          $('#dupWarning').innerHTML = `<div class="warn-banner"><b>Possible duplicate</b> — ${escHtml(top.reasons.join(', '))}. Matches "${escHtml(leadDisplayName(top.lead))}" (${top.lead.status}).</div>`;
+        }
       } else $('#dupWarning').innerHTML = '';
     }, 250);
     $('#f_company').addEventListener('input', checkDup);
@@ -2276,6 +2363,14 @@ async function openLeadDetail(id){
     const contactVal = $('#f_contact').value.trim();
     const emailVal = $('#f_email').value.trim();
     if(!company && !contactVal && !emailVal){ toast('Add at least a company, contact, or email.'); return; }
+    if(isNew && addBlocked){ toast('That lead is already in your database.'); return; }
+    if(isNew){
+      // The live check is debounced, so re-run it synchronously at the moment
+      // of saving — otherwise a fast typist could hit Add before it fires.
+      const finalCandidate = { company_name: company, company_name_clean: cleanCompany(company), email: emailVal, email_domain: emailDomain(emailVal), contact_person: contactVal };
+      const hard = findHardMatch(finalCandidate, buildDedupIndex(state.leads));
+      if(hard){ toast(`Already in your database as "${leadDisplayName(hard.lead)}".`); return; }
+    }
     const fields = {
       company_name: company,
       company_name_clean: cleanCompany(company),
@@ -2652,11 +2747,15 @@ async function buildPreview(){
     for(let i=0;i<allRows.length;i++){
       const candidate = allRows[i];
       const matches = findMatches(candidate, dedupIdx);
-      importPreviewRows.push({ candidate, matches, action: matches.length ? 'skip' : 'add', mergeTargetId: matches.length ? matches[0].lead.id : null });
-      // Rows in this batch only join the protected set if the sheet itself
-      // marked them Won/Dead/Warm/In Progress. Plain prospects (Not Now) stay
-      // unprotected, so repeats within one import are allowed through.
-      if(!matches.length && PROTECTED_STATUSES.has(candidate.status)) indexAdd(dedupIdx, candidate);
+      const blocked = !!(matches[0] && matches[0].hard);
+      importPreviewRows.push({ candidate, matches, blocked, action: 'skip', mergeTargetId: matches.length ? matches[0].lead.id : null });
+      if(!blocked) importPreviewRows[importPreviewRows.length-1].action = matches.length ? 'skip' : 'add';
+      if(!blocked){
+        // Index every accepted row against the rest of this same file, so a
+        // list that contains the same address twice still imports it once.
+        indexAddExact(dedupIdx, candidate);
+        if(!matches.length && PROTECTED_STATUSES.has(candidate.status)) indexAdd(dedupIdx, candidate);
+      }
       if((i+1) % SCAN_CHUNK === 0){ p.set(i+1); await yieldToPaint(); }
     }
     p.set(allRows.length);
@@ -2681,19 +2780,21 @@ let importNotesById = {};
 const PREVIEW_RENDER_CAP = 300;
 
 function previewCounts(){
-  let add=0, skip=0, merge=0;
+  let add=0, skip=0, merge=0, blocked=0;
   for(const r of importPreviewRows){
+    if(r.blocked){ blocked++; continue; }
     if(r.action==='add') add++;
     else if(r.action==='merge') merge++;
     else skip++;
   }
-  return {add, skip, merge};
+  return {add, skip, merge, blocked};
 }
 function previewSummaryText(){
-  const {add, skip, merge} = previewCounts();
+  const {add, skip, merge, blocked} = previewCounts();
   const bits = [`add ${add.toLocaleString()}`];
   if(merge) bits.push(`merge ${merge.toLocaleString()}`);
   bits.push(`skip ${skip.toLocaleString()}`);
+  if(blocked) bits.push(`block ${blocked.toLocaleString()}`);
   return `On commit: ${bits.join(' · ')}`;
 }
 function updatePreviewSummary(){
@@ -2702,12 +2803,14 @@ function updatePreviewSummary(){
 }
 
 async function renderPreview(){
-  const dupCount = importPreviewRows.filter(r=>r.matches.length).length;
-  const newCount = importPreviewRows.length - dupCount;
+  const blockedCount = importPreviewRows.filter(r=>r.blocked).length;
+  const dupCount = importPreviewRows.filter(r=>r.matches.length && !r.blocked).length;
+  const newCount = importPreviewRows.length - dupCount - blockedCount;
 
   // Duplicates first, then new rows, then cut to the render cap.
   const order = [];
-  importPreviewRows.forEach((r,i)=>{ if(r.matches.length) order.push(i); });
+  importPreviewRows.forEach((r,i)=>{ if(r.blocked) order.push(i); });
+  importPreviewRows.forEach((r,i)=>{ if(r.matches.length && !r.blocked) order.push(i); });
   importPreviewRows.forEach((r,i)=>{ if(!r.matches.length) order.push(i); });
   const shown = order.slice(0, PREVIEW_RENDER_CAP);
   const hidden = order.length - shown.length;
@@ -2737,10 +2840,15 @@ async function renderPreview(){
       <div><div class="stat-num">${importPreviewRows.length.toLocaleString()}</div><div class="stat-label">Rows found</div></div>
       <div><div class="stat-num" style="color:var(--green)">${newCount.toLocaleString()}</div><div class="stat-label">New</div></div>
       <div><div class="stat-num" style="color:var(--amber)">${dupCount.toLocaleString()}</div><div class="stat-label">Possible duplicates</div></div>
+      ${blockedCount?`<div><div class="stat-num" style="color:var(--red)">${blockedCount.toLocaleString()}</div><div class="stat-label">Already in database</div></div>`:''}
     </div>
+    ${blockedCount?`<div class="warn-banner" style="background:rgba(178,58,46,.08);border-color:rgba(178,58,46,.3);color:var(--red);margin-bottom:.8rem">
+      <b>${blockedCount.toLocaleString()} row${blockedCount===1?' is':'s are'} already in your database</b> and will not be imported — same email address (or, where there's no email, same company and contact). This applies to every lead, not just clients, and it can't be overridden here.
+    </div>`:''}
     <div class="preview-toolbar">
       <button class="btn btn-ghost btn-sm" id="skipAllDup">Skip all duplicates</button>
       <button class="btn btn-ghost btn-sm" id="addAllDup">Add all as new</button>
+      ${blockedCount?`<button class="btn btn-ghost btn-sm" id="exportBlocked">Export the ${blockedCount.toLocaleString()} blocked</button>`:''}
       <span id="previewSummaryLine" style="margin-left:auto;align-self:center;color:var(--text-2);font-size:.82rem">${previewSummaryText()}</span>
     </div>
     ${hidden>0 ? `<div class="warn-banner" style="margin-bottom:.8rem">Showing the first <b>${shown.length.toLocaleString()}</b> of ${order.length.toLocaleString()} rows — possible duplicates first. The other ${hidden.toLocaleString()} keep their default action (new rows are added, duplicates are skipped); the two buttons above change every row at once.</div>` : ''}
@@ -2751,6 +2859,17 @@ async function renderPreview(){
         const isDup = r.matches.length>0;
         const best = r.matches[0];
         const lastNote = best && best.lead.id ? importNotesById[best.lead.id] : null;
+        if(r.blocked){
+          return `<div class="prow blocked">
+            <div>
+              <div class="td-company">${escHtml(leadDisplayName(c))}</div>
+              <div class="td-sub">${escHtml(c.contact_person||'')} ${c.email?('· '+escHtml(c.email)):''}</div>
+            </div>
+            <div><span class="badge status-Dead">Already in database</span><div class="prow-reasons">${best.reasons.map(rs=>`<span class="reason-chip">${escHtml(rs)}</span>`).join('')}</div></div>
+            <div><div class="prow-match">Already saved as <b>${escHtml(leadDisplayName(best.lead))}</b>${best.lead.id?` (${best.lead.status})`:' (earlier row in this same file)'}</div>
+            <div class="blocked-note">Not imported.</div></div>
+          </div>`;
+        }
         return `<div class="prow ${isDup?'dup':''}">
           <div>
             <div class="td-company">${escHtml(leadDisplayName(c))}</div>
@@ -2779,16 +2898,25 @@ async function renderPreview(){
   $('#closePrev').addEventListener('click', ()=>{ importQueue=[]; closeModal(); });
   $('#cancelPrev').addEventListener('click', ()=>{ importQueue=[]; closeModal(); });
   $$('.rowAction').forEach(sel=> sel.addEventListener('change', e=>{
-    importPreviewRows[+e.target.dataset.idx].action = e.target.value;
+    const row = importPreviewRows[+e.target.dataset.idx];
+    if(row.blocked){ e.target.value='skip'; return; }
+    row.action = e.target.value;
     updatePreviewSummary();
   }));
   $('#skipAllDup').addEventListener('click', ()=>{
-    importPreviewRows.forEach(r=>{ if(r.matches.length) r.action='skip'; });
+    importPreviewRows.forEach(r=>{ if(r.matches.length && !r.blocked) r.action='skip'; });
     renderPreview();
   });
   $('#addAllDup').addEventListener('click', ()=>{
-    importPreviewRows.forEach(r=>{ if(r.matches.length) r.action='add'; });
+    // Blocked rows are exempt: "add all" means all the ones you're allowed to add.
+    importPreviewRows.forEach(r=>{ if(r.matches.length && !r.blocked) r.action='add'; });
     renderPreview();
+  });
+  $('#exportBlocked')?.addEventListener('click', ()=>{
+    const rows = importPreviewRows.filter(r=>r.blocked).map(r=>r.candidate);
+    if(!rows.length){ toast('Nothing was blocked.'); return; }
+    downloadCSV(`reach-already-in-database-${todayISO()}.csv`, toCSV(LEAD_EXPORT_COLUMNS, rows));
+    toast(`Exported ${rows.length} blocked row${rows.length===1?'':'s'}.`);
   });
   $('#commitImport').addEventListener('click', commitImport);
 }
@@ -2806,9 +2934,14 @@ async function commitImport(){
   const toInsert = [];
   const toMerge = [];
   importPreviewRows.forEach(r=>{
+    // Belt and braces: a blocked row never reaches the database, whatever
+    // its action ended up as. The UI already prevents changing it; this
+    // makes it true even if some future change to the UI forgets.
+    if(r.blocked) return;
     if(r.action==='add') toInsert.push(r);
     else if(r.action==='merge') toMerge.push(r);
   });
+  const blockedCount = importPreviewRows.filter(r=>r.blocked).length;
   if(!toInsert.length && !toMerge.length){
     toast('Nothing selected to import.');
     return;
@@ -2903,7 +3036,7 @@ async function commitImport(){
     setView('leads');
     await p.finish('Import complete',
       `${toInsert.length.toLocaleString()} added${toMerge.length?`, ${toMerge.length.toLocaleString()} merged`:''}.`);
-    toast(`Imported ${toInsert.length} new, merged ${toMerge.length}.`);
+    toast(`Imported ${toInsert.length} new, merged ${toMerge.length}${blockedCount?`, blocked ${blockedCount} already in your database`:''}.`);
   }catch(e){
     console.error(e);
     p.close();
