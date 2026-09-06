@@ -102,6 +102,8 @@ main.full{padding:1.1rem 0 1.1rem}
   white-space:nowrap;
 }
 .btn:active{transform:scale(.97)}
+.btn:disabled{opacity:.55;cursor:not-allowed;transform:none}
+.btn:disabled:hover{background:var(--ink-deep)}
 .btn-primary{background:var(--ink-deep);color:var(--paper)}
 .btn-primary:hover{background:var(--accent-deep)}
 .btn-ghost{background:transparent;color:var(--ink-deep);border:1px solid var(--sep-strong)}
@@ -2791,7 +2793,16 @@ async function renderPreview(){
   $('#commitImport').addEventListener('click', commitImport);
 }
 
+/* A commit must never be startable twice. Each run inserts every selected row
+   unconditionally, so a second click doesn't resume or replace the first — it
+   writes a whole second copy of the list. With no progress shown, a big import
+   looked frozen, and clicking Commit again was the natural thing to do; that
+   is how a 66,000-row sheet became seven identical copies of itself. The
+   progress overlay now covers the button as well, but the flag is what
+   actually guarantees it: it holds even if the overlay is dismissed. */
+let importCommitting = false;
 async function commitImport(){
+  if(importCommitting){ toast('That import is already running.'); return; }
   const toInsert = [];
   const toMerge = [];
   importPreviewRows.forEach(r=>{
@@ -2802,6 +2813,9 @@ async function commitImport(){
     toast('Nothing selected to import.');
     return;
   }
+  importCommitting = true;
+  const commitBtn = $('#commitImport');
+  if(commitBtn){ commitBtn.disabled = true; commitBtn.textContent = 'Importing…'; }
 
   // Every unit of work the save has to get through, counted up front, so the
   // bar and the estimate describe the whole job rather than one part of it.
@@ -2895,6 +2909,7 @@ async function commitImport(){
     p.close();
     toast('Import failed — check console.');
   }finally{
+    importCommitting = false;
     p.close();
   }
 }
