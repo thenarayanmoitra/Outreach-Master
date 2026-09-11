@@ -1,50 +1,56 @@
-# Reach — Outreach Tracker
+# Reach — Outreach Memory
 
-One self-contained HTML file. No build step, no framework beyond two CDN scripts (SheetJS for reading Excel/CSV, Supabase JS for the database). Drop it into a Netlify site folder and it deploys like any other page.
+One self-contained HTML file. No build step, no framework beyond two CDN scripts (SheetJS for Excel/CSV, Supabase JS for the database). Drop it into a Netlify site folder and it deploys like any other page.
 
-## What it does
+Version 2 follows the **Reach Restructure Logic Spec (v1, 11 Sep 2026)**: data is split by value. People who replied are few and important and live in the browser with full fuzzy matching. People who never replied are many and are only remembered by exact email, on the server, and are never loaded in bulk. Raw lead lists live in Google Sheets — Reach is the memory, the checker, the clean exporter and the dashboard.
 
-Import lead lists from many spreadsheets over time into one central table, see your pipeline at a glance, and get warned before you contact a company or email you've already reached out to — even when the spelling doesn't match exactly.
+## Upgrading from v1 (do these in order)
 
-Duplicate checks run on: exact email, exact cleaned company name (strips Pvt Ltd, Inc, LLC, Travel, Group, DMC, Association, Alliance, and similar boilerplate words, plus punctuation), a fuzzy similarity check on what's left of the company name, shared email domain, and matching contact-person name. The matching is deliberately generous — it's tuned to over-flag rather than risk missing a repeat, since the whole point is never re-emailing an existing client, a coworker at the same company, or someone who already said no. The same check runs live in the manual add-lead form, not just during import.
-
-A row with no company name doesn't get blocked — as long as it has a contact name or an email, it imports fine and matches on whichever of those it has.
-
-## Setup
-
-1. Create a free project at [supabase.com](https://supabase.com).
-2. Open the SQL editor in that project and run everything in `schema.sql` (in this folder).
-3. In your project's API settings, copy the **Project URL** and the **anon public** key.
-4. Open `index.html` and near the top of the `<script>` block, set:
-   ```js
-   const SUPABASE_URL = 'https://your-project.supabase.co';
-   const SUPABASE_ANON_KEY = 'your-anon-key';
-   ```
-5. Deploy: push this folder to a GitHub repo and connect it to Netlify (same pattern as your other tools), or drag the folder onto Netlify Drop for a quick test.
-
-Until you set those two values, the app runs on a local-storage fallback so you can try it in one browser right away — nothing syncs across devices in that mode, and it says so in a banner at the top.
+1. **If you never ran `cleanup-duplicates.sql`, run it first.** The migration collapses duplicate *Not Now* rows by email automatically, but seven copies of a Won or Warm lead would become seven relationships.
+2. **Run `schema.sql`** in Supabase → SQL Editor → New query. It creates the new tables and functions alongside the old ones and never touches `leads` / `lead_notes`. Safe to re-run.
+3. **Deploy the new `index.html`.** (If you deploy it before step 2, the app shows a "run schema.sql" screen instead of breaking.)
+4. Open the app → **Settings → Migrate from the old leads table** (a banner links there too) and follow the six steps:
+   - **Snapshot** — copies `leads` and `lead_notes` to timestamped tables on the server.
+   - **Prepare** — normalises every old email.
+   - **Review Won & Dead** — Won → Active Client or Past Client; Dead → Declined, Do Not Contact, or *Ghost → ledger*. Warm and In Progress become In Conversation. Old auto-logged campaign rows that a Legacy campaign replaces can be deleted here.
+   - **Archive** — downloads `Reach_LegacyArchive_All_<date>.csv`: rows with no valid email plus every note on a row leaving for the ledger.
+   - **Move data** — one `Legacy, <sheet>` campaign per old sheet with real campaign sends; Not Now rows (and ghosts) → sent ledger, earliest date kept, one legacy send per address; everyone else → relationships with the same ids and their notes. Runs in small resumable chunks, so a dropped connection just means pressing Run again.
+   - **Confirm & retire** — once rows left in `leads` match rows copied, the old tables are *renamed* to `*_retired_<date>` (not dropped) and their public access removed.
+5. Optional but recommended, **lock it down** (spec 12): create your login in Supabase → Authentication → Users, set `const REQUIRE_LOGIN = true;` near the top of the script in `index.html`, deploy, then run `security-lockdown.sql`.
 
 ## Data model
 
-- **leads** — one row per company/contact. `company_name_clean` and `email_domain` are computed automatically for matching.
-- **lead_notes** — a timestamped timeline per lead, so history is never overwritten by a single note field.
-- **campaigns** — one row per outreach batch: dataset/campaign name, date, number of mails, status, response/notes. Auto-logged every time you import a sheet, and hand-editable besides.
+| Table | What it holds | Loaded into the browser? |
+|---|---|---|
+| `relationships` | Anyone who sent a real human reply. Six statuses: Active Client, Past Client, In Conversation, Declined (with optional `revisit_after`), Redirected, Do Not Contact. Never deleted by any automated action. | Yes, fully |
+| `relationship_notes` | Timeline per relationship. Every status change writes an automatic note (a database trigger, whichever screen made the change). | Yes, fully |
+| `sent_ledger` | One ~100-byte row per address ever mailed: dates, send count, first/last campaign, replied. No names, no companies. | Never in bulk |
+| `campaign_sends` | Which address was in which campaign. Unique per (campaign, email). | One page at a time, only when a campaign is opened |
+| `campaigns` | Each batch, with stored `sent_count`, `bounce_count`, `reply_count`, `source_sheet`. | Yes (the list, without sends) |
+| `bounce_suppression` | Every address ever removed as bounced, so it can never come back as New. | Never in bulk |
+| `campaign_replies` | Helper: one row per person per campaign that replied, so `reply_count` can never be counted twice. | No |
 
-RLS is enabled with a permissive policy so the anon key can read/write — there's no login screen, matching your other single-user apps. Don't put anything in this table you wouldn't want visible to anyone who found the page URL.
+All writes that matter run as single-transaction server functions (`mark_sent`, `undo_mark_sent`, `purge_bounces`, `log_reply`, `delete_campaign`, …), and every one is an upsert or insert-on-conflict with counters recomputed from real rows — a retry or a double click can never create duplicates. That is what permanently replaces `cleanup-duplicates.sql`, which only matters for the old `leads` table.
+
+Email normalisation is one function used everywhere (`normEmail()` in the page, `reach_norm_email()` in SQL — they match): trims whitespace, non-breaking spaces and zero-width characters, strips `mailto:`, angle brackets, quotes, commas and semicolons, lowercases, and validates the shape. No Gmail dot or plus-alias rewriting — matching is exact.
 
 ## Using it
 
-- **Import** — drag one or many `.xlsx`/`.csv` files. Map columns once per distinct header layout (company, contact, email, notes, status); the mapping is remembered in this browser for files with the same headers. The review screen shows every row as New or Possible Duplicate with the reason, the matched lead, and its most recent note, and lets you skip, add anyway, or merge into the existing record — per row or in bulk. Everything you import defaults to **Not Now** status unless the sheet has its own status column — nothing gets auto-marked Won or Dead on your behalf. Every import also drops a row onto the **Campaigns** sheet automatically (name, date, mail count).
-- **Leads** — looks and behaves like a spreadsheet: row numbers, gridlines, click any cell and type. Each import lands on its own sheet tab at the bottom, the same way Google Sheets tabs work — **double-click a tab to rename it**, hover a tab for a small **×** to delete it. Deleting asks what to do with its leads: move them to Unlabeled and keep the data, or delete the sheet and its leads together — an empty sheet just deletes outright. An "All leads" tab sits first for when you need to see or search across everything at once — that's also where the duplicate memory always checks, regardless of which tab you're viewing. Hit **+** to start a new empty sheet by hand.
-  - **Bulk edit**: tick the checkbox on any rows (or the header checkbox to select everything visible) to get a bar for setting status, moving to another sheet, or deleting — in bulk.
-  - **Drag-fill**: click any cell (status, follow-up date, or any other field) and a small square appears at its corner — drag that down (or up) across rows and release to copy that value into all of them. This is the fast way to mark a run of rows Not Now, or set the same follow-up date across ten leads at once.
-- **Add lead** — the same duplicate check runs live as you type a company name, contact name, or email. Only one of those three is required.
-- **Kanban** — defaults to grouping everything into the Not Now column; drag a card to change its status. Filter to one sheet at a time with the dropdown, or view all sheets together.
-- **Campaigns** — a separate spreadsheet for tracking outreach batches: which list, when, how many emails, status (Scheduled / In Progress / Completed / Paused), and a free-text response/notes column. Add rows by hand for anything not tied to an import.
-- **Dashboard** — stays global across all sheets: total leads, funnel (contacted → responded → won), leads added per month, breakdown by status and by sheet, and what's due for follow-up this week.
+- **Check a list** (<kbd>C</kbd>) — drop one or more `.xlsx`/`.csv` files or paste addresses. Map columns once per header layout (remembered), and pick any extra columns to carry through. Reach normalises, splits cells holding several addresses, collapses duplicates inside the upload (keeps the first, tells you), checks relationships in the browser, then the ledger and suppression list on the server 500 at a time. Every row gets exactly one label — **Invalid, Blocked, Warning, Previously mailed, New** — with the reason, the matched record, its status and latest note. Blocked and Invalid can never be included; warnings are yours to include. **Checking never writes anything.**
+- **Export clean list** — Company, Contact Name, Email, your carried-through columns, then Reach Label / Times Mailed / Last Mailed (a toggle removes those three for a file that goes straight into your sending tool).
+- **Mark as sent** — after you send it, record it against an existing or new campaign (name, date, source sheet). Also available standalone from Campaigns with an uploaded or pasted final list. **Undo last Mark as Sent** reverses exactly the rows that action inserted and restores the ledger values, for the rest of the session.
+- **Relationships** — status chips replace the old sheet tabs; table or board; inline status and follow-up; bulk status and follow-up (never bulk delete). **Log reply** (<kbd>R</kbd>) checks the ledger and pre-fills the source campaign, opens the existing record if the address is already a relationship, handles "replied from a different address" (the relationship keeps the new address, the campaign gets the credit through the mailed one), asks for a revisit date on Declined, and on Redirected adds the referred person as a linked In Conversation record. **Bulk log replies** takes a paste box and an editable grid.
+- **Campaigns** — counters, delivered-based reply and bounce rates, paged sends, **Remove bounced emails** (paste anything; four-group preview; one-click backup csv; type the count to confirm), **Export delivered list**, delete with the choice to keep (default) or remove the ledger history.
+- **Ledger** — look up one exact address to see every campaign it was in, replies and bounces. **Full ledger backup** pages through the server with progress.
+- **Settings** — domain warning (off by default), the bounce suppression list with search and remove, a global bounce purge across all campaigns, backups, migration, security.
+- **Dashboard** — unique addresses contacted, sent this month vs last, overall reply rate, sends by month, relationships by status, per-campaign table, In Conversation → Active Client conversion, due this week (follow-ups and revisit dates), warm leads going cold (21+ days quiet). One `dashboard_stats()` call; nothing loads ledger rows.
 
-Click the 🗒 on any lead row to open its full profile: edit every field, set **last contacted** (there's a one-click "Today" button) and the next follow-up date, and add to its notes timeline. Last contacted is what the Dashboard funnel's Contacted/Responded numbers are built from — a lead sits outside that funnel until you've logged a contact date for it, same as any CRM.
+Every export: CSV with a UTF-8 BOM (or XLSX), fixed columns with headers, normalised emails, no blank rows, no duplicate emails, no internal ids, sorted by company then contact then email, ISO dates, named `Reach_<Type>_<Scope>_<YYYYMMDD>`, and never a suppressed address (in the relationships export a bounced contact keeps their row with the dead address blanked and Email Bounced = Yes).
+
+Without Supabase settings the app runs in **local mode**: relationships and campaigns work in this browser, and anything ledger-shaped says clearly that it needs the database connection.
+
+If relationships ever pass roughly 5,000 rows, move the fuzzy company match to the server with `pg_trgm` (spec 9). Not needed now.
 
 ## Brand
 
-Tokens are lifted straight from `Pratim_Brand Guidelines.docx` (Field Guide v1) — warm gold accent used only where text-safe, sage-tinted paper, forest ink, 4px radius everywhere, Space Grotesk for headings, Manrope for body/UI, Space Mono for micro-labels, Fraunces italic reserved for the "reach" wordmark. Same CSS variable pattern as the Task Board app, so it sits in the same visual family.
+Tokens are lifted straight from `Pratim_Brand Guidelines.docx` (Field Guide v1) — warm gold accent used only where text-safe, sage-tinted paper, forest ink, 4px radius, Space Grotesk for headings, Manrope for body/UI, Space Mono for micro-labels, Fraunces italic for the "reach" wordmark. The six relationship status colours are a colour-blind-checked categorical set; every status also carries its name, never colour alone.
