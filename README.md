@@ -1,56 +1,53 @@
-# Reach — Outreach Memory
+# Reach — never-mail memory
 
-One self-contained HTML file. No build step, no framework beyond two CDN scripts (SheetJS for Excel/CSV, Supabase JS for the database). Drop it into a Netlify site folder and it deploys like any other page.
+Reach does one job: it remembers who you must never cold-mail again, and cleans your sheets against that memory. Your lists, campaigns and contact details stay in Google Sheets.
 
-Version 2 follows the **Reach Restructure Logic Spec (v1, 11 Sep 2026)**: data is split by value. People who replied are few and important and live in the browser with full fuzzy matching. People who never replied are many and are only remembered by exact email, on the server, and are never loaded in bulk. Raw lead lists live in Google Sheets — Reach is the memory, the checker, the clean exporter and the dashboard.
+One HTML file, no build step. Two CDN scripts (SheetJS for Excel/CSV, Supabase JS for the database). Drop it into a Netlify folder and it deploys like any other page.
 
-## Upgrading from v1 (do these in order)
+## What Reach remembers (and nothing else)
 
-1. **If you never ran `cleanup-duplicates.sql`, run it first.** The migration collapses duplicate *Not Now* rows by email automatically, but seven copies of a Won or Warm lead would become seven relationships.
-2. **Run `schema.sql`** in Supabase → SQL Editor → New query. It creates the new tables and functions alongside the old ones and never touches `leads` / `lead_notes`. Safe to re-run.
-3. **Deploy the new `index.html`.** (If you deploy it before step 2, the app shows a "run schema.sql" screen instead of breaking.)
-4. Open the app → **Settings → Migrate from the old leads table** (a banner links there too) and follow the six steps:
-   - **Snapshot** — copies `leads` and `lead_notes` to timestamped tables on the server.
-   - **Prepare** — normalises every old email.
-   - **Review Won & Dead** — Won → Active Client or Past Client; Dead → Declined, Do Not Contact, or *Ghost → ledger*. Warm and In Progress become In Conversation. Old auto-logged campaign rows that a Legacy campaign replaces can be deleted here.
-   - **Archive** — downloads `Reach_LegacyArchive_All_<date>.csv`: rows with no valid email plus every note on a row leaving for the ledger.
-   - **Move data** — one `Legacy, <sheet>` campaign per old sheet with real campaign sends; Not Now rows (and ghosts) → sent ledger, earliest date kept, one legacy send per address; everyone else → relationships with the same ids and their notes. Runs in small resumable chunks, so a dropped connection just means pressing Run again.
-   - **Confirm & retire** — once rows left in `leads` match rows copied, the old tables are *renamed* to `*_retired_<date>` (not dropped) and their public access removed.
-5. Optional but recommended, **lock it down** (spec 12): create your login in Supabase → Authentication → Users, set `const REQUIRE_LOGIN = true;` near the top of the script in `index.html`, deploy, then run `security-lockdown.sql`.
-
-## Data model
-
-| Table | What it holds | Loaded into the browser? |
+| Memory | What's in it | How it gets there |
 |---|---|---|
-| `relationships` | Anyone who sent a real human reply. Six statuses: Active Client, Past Client, In Conversation, Declined (with optional `revisit_after`), Redirected, Do Not Contact. Never deleted by any automated action. | Yes, fully |
-| `relationship_notes` | Timeline per relationship. Every status change writes an automatic note (a database trigger, whichever screen made the change). | Yes, fully |
-| `sent_ledger` | One ~100-byte row per address ever mailed: dates, send count, first/last campaign, replied. No names, no companies. | Never in bulk |
-| `campaign_sends` | Which address was in which campaign. Unique per (campaign, email). | One page at a time, only when a campaign is opened |
-| `campaigns` | Each batch, with stored `sent_count`, `bounce_count`, `reply_count`, `source_sheet`. | Yes (the list, without sends) |
-| `bounce_suppression` | Every address ever removed as bounced, so it can never come back as New. | Never in bulk |
-| `campaign_replies` | Helper: one row per person per campaign that replied, so `reply_count` can never be counted twice. | No |
+| **Clients** | Email, company, name, note. A client can also be just a company. | Memory → Add to memory |
+| **Replied** | Anyone who already replied (yes, no or later). | Memory → Add to memory |
+| **Do not contact** | People who asked you to stop. | Memory → Add to memory |
+| **Bounced** | Every address that ever bounced. Blocked forever. | Remove bounces |
+| **Mailed before** | Bare addresses you sent to, plus first/last date. No names. | "I sent this list" after a check |
 
-All writes that matter run as single-transaction server functions (`mark_sent`, `undo_mark_sent`, `purge_bounces`, `log_reply`, `delete_campaign`, …), and every one is an upsert or insert-on-conflict with counters recomputed from real rows — a retry or a double click can never create duplicates. That is what permanently replaces `cleanup-duplicates.sql`, which only matters for the old `leads` table.
+## The two things you do
 
-Email normalisation is one function used everywhere (`normEmail()` in the page, `reach_norm_email()` in SQL — they match): trims whitespace, non-breaking spaces and zero-width characters, strips `mailto:`, angle brackets, quotes, commas and semicolons, lowercases, and validates the shape. No Gmail dot or plus-alias rewriting — matching is exact.
+**1. Check a new list before sending.** Check a list → drop the .xlsx/.csv (or paste addresses). Every address gets one label:
 
-## Using it
+- **Blocked** (can never be sent): Client · Replied · Do not contact · Bounced · Duplicate in this list · No valid email
+- **Your call** (left out unless you tick it): Mailed before · At a client's company (same email domain as a client, or the same company name)
+- **Ready**: Reach knows nothing about them
 
-- **Check a list** (<kbd>C</kbd>) — drop one or more `.xlsx`/`.csv` files or paste addresses. Map columns once per header layout (remembered), and pick any extra columns to carry through. Reach normalises, splits cells holding several addresses, collapses duplicates inside the upload (keeps the first, tells you), checks relationships in the browser, then the ledger and suppression list on the server 500 at a time. Every row gets exactly one label — **Invalid, Blocked, Warning, Previously mailed, New** — with the reason, the matched record, its status and latest note. Blocked and Invalid can never be included; warnings are yours to include. **Checking never writes anything.**
-- **Export clean list** — Company, Contact Name, Email, your carried-through columns, then Reach Label / Times Mailed / Last Mailed (a toggle removes those three for a file that goes straight into your sending tool).
-- **Mark as sent** — after you send it, record it against an existing or new campaign (name, date, source sheet). Also available standalone from Campaigns with an uploaded or pasted final list. **Undo last Mark as Sent** reverses exactly the rows that action inserted and restores the ledger values, for the rest of the session.
-- **Relationships** — status chips replace the old sheet tabs; table or board; inline status and follow-up; bulk status and follow-up (never bulk delete). **Log reply** (<kbd>R</kbd>) checks the ledger and pre-fills the source campaign, opens the existing record if the address is already a relationship, handles "replied from a different address" (the relationship keeps the new address, the campaign gets the credit through the mailed one), asks for a revisit date on Declined, and on Redirected adds the referred person as a linked In Conversation record. **Bulk log replies** takes a paste box and an editable grid.
-- **Campaigns** — counters, delivered-based reply and bounce rates, paged sends, **Remove bounced emails** (paste anything; four-group preview; one-click backup csv; type the count to confirm), **Export delivered list**, delete with the choice to keep (default) or remove the ledger history.
-- **Ledger** — look up one exact address to see every campaign it was in, replies and bounces. **Full ledger backup** pages through the server with progress.
-- **Settings** — domain warning (off by default), the bounce suppression list with search and remove, a global bounce purge across all campaigns, backups, migration, security.
-- **Dashboard** — unique addresses contacted, sent this month vs last, overall reply rate, sends by month, relationships by status, per-campaign table, In Conversation → Active Client conversion, due this week (follow-ups and revisit dates), warm leads going cold (21+ days quiet). One `dashboard_stats()` call; nothing loads ledger rows.
+Download the clean list. It's your sheet with the same columns, in the same order and with the same values, minus the rows that shouldn't be mailed. Send it, then press **I sent this list** so Reach remembers those addresses. Undo is there if you press it by mistake, and pressing it twice changes nothing. **Left-out rows** downloads everything that was taken out, with the reason.
 
-Every export: CSV with a UTF-8 BOM (or XLSX), fixed columns with headers, normalised emails, no blank rows, no duplicate emails, no internal ids, sorted by company then contact then email, ISO dates, named `Reach_<Type>_<Scope>_<YYYYMMDD>`, and never a suppressed address (in the relationships export a bounced contact keeps their row with the dead address blanked and Email Bounced = Yes).
+**2. Remove bounces after a send.** Remove bounces → paste the bounced addresses (bare addresses or whole bounce notifications; mailer-daemon and message ids are ignored) → optionally drop the list you sent from → see exactly what will happen → **Block & download clean list**. The bounced addresses are blocked forever; the list comes back without them (1,000 rows → 900). If a cell held two addresses and only one bounced, only that one is taken out of the cell. Addresses that bounced *before* and are still in the sheet are taken out too (you can switch that off). Nothing is saved until you press the button.
 
-Without Supabase settings the app runs in **local mode**: relationships and campaigns work in this browser, and anything ledger-shaped says clearly that it needs the database connection.
+**Memory** shows the counts, lets you look up any address, add people, fix mistakes (edit, remove, unblock, forget, each with Undo), and download a full backup (one .xlsx with People, Bounced, Mailed).
 
-If relationships ever pass roughly 5,000 rows, move the fuzzy company match to the server with `pg_trgm` (spec 9). Not needed now.
+## Safety rules the code follows
+
+- Checking never writes anything. Only three buttons write: *I sent this list*, *Block … forever*, *Add to memory* (plus edits in Memory).
+- If the memory check fails halfway (connection drop), every address shows **Not checked**, nothing is Ready, and download is locked until Retry succeeds.
+- Every write is one database transaction and an upsert, so retries and double clicks can't create duplicates. A write that fails halfway can simply be repeated.
+- Bounces are saved before the clean file is downloaded. If saving fails, you get no file.
+- Email matching is exact after normalisation: spaces, capitals, `mailto:`, `<>`, quotes and invisible characters are cleaned. The page and the database use identical rules (tested against each other).
+- Your sheet's values are copied untouched. Long numbers keep every digit, "00123" stays "00123", dates stay dates.
+
+## Setup / upgrading from Reach v2
+
+1. Supabase → **SQL Editor** → New query → paste all of **`reach.sql`** → Run.
+   - It creates the `never_mail` table and copies your old relationships into it: Active/Past Client → Client, Do Not Contact → Do not contact, everyone else who replied → Replied. The old status and your latest note go into the note.
+   - Your existing bounce list and sent ledger are used as they are.
+   - It never drops or deletes anything. The old tables (relationships, campaigns, …) stay as a backup.
+   - Safe to run again: it copies nothing twice.
+2. Deploy the new `index.html`. (Deploy it before step 1 and it shows a "run reach.sql" screen instead of breaking.)
+
+**Optional, recommended:** lock it to your login. Create your user in Supabase → Authentication → Users, set `const REQUIRE_LOGIN = true;` in `index.html`, deploy, then run `security-lockdown.sql`.
 
 ## Brand
 
-Tokens are lifted straight from `Pratim_Brand Guidelines.docx` (Field Guide v1) — warm gold accent used only where text-safe, sage-tinted paper, forest ink, 4px radius, Space Grotesk for headings, Manrope for body/UI, Space Mono for micro-labels, Fraunces italic for the "reach" wordmark. The six relationship status colours are a colour-blind-checked categorical set; every status also carries its name, never colour alone.
+Tokens from `Pratim_Brand Guidelines.docx` (Field Guide v1): sage paper, forest ink, warm gold accent, 4px radius, Space Grotesk / Manrope / Space Mono, Fraunces italic wordmark.
